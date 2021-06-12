@@ -1,2 +1,2 @@
 # sco
-Sequential Optimization Optimization
+Sequential Convex Optimization
