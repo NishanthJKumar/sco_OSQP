@@ -1,3 +1,9 @@
+# VSCode settings folder
+.vscode
+
+# Ruby version file added by vscode
+.ruby-version
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

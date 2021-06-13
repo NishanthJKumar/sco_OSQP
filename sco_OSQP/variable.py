@@ -1,6 +1,7 @@
-import numpy as np
 import gurobipy as grb
+import numpy as np
 from ipdb import set_trace as st
+
 
 class Variable(object):
     """
