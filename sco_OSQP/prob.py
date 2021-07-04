@@ -79,7 +79,6 @@ class Prob(object):
 
         self._penalty_exprs = []
         # self._osqp_penalty_cnts = []  # hinge and abs value constraints
-        # self._pgm = PosGRBVarManager(self._model)
 
         ## group-id (str) -> cnt-set (set of constraints)
         self._cnt_groups = defaultdict(set)
@@ -219,24 +218,13 @@ class Prob(object):
 
         # If the solve succeeded, update all the variables with these new values, then
         # run he callback before returning true
-        self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
+        self._update_osqp_vars(var_to_index_dict, solve_res.x)
         self._update_vars()
         self._callback()
 
     def _reset_hinge_cnts(self):
         ## reset the hinge_cnts
         self.hinge_created = False
-
-    # @profile
-    def _add_np_array_grb_cnt(self, grb_exprs, sense, val):
-        """
-        Adds a numpy array of Gurobi constraints to the model and returns
-        the constraints.
-        """
-        cnts = []
-        for index, grb_expr in np.ndenumerate(grb_exprs):
-            cnts.append(self._model.addConstr(grb_expr, sense, val[index]))
-        return cnts
 
     def _add_osqp_objs_and_cnts_from_expr(self, bound_expr):
         """
@@ -412,6 +400,7 @@ class Prob(object):
         return True
 
     def update_obj(self, penalty_coeff=0.0):
+        self._reset_osqp_objs()
         self._lazy_spawn_osqp_cnts()
         for bound_expr in self._quad_obj_exprs + self._approx_obj_exprs:
             self._add_osqp_objs_and_cnts_from_expr(bound_expr)
@@ -420,6 +409,12 @@ class Prob(object):
             # TODO: Get these next two lines to run when necessary
             grb_expr = self._update_nonlin_cnt(bound_expr, i).flatten()
             grb_exprs.extend(grb_expr * penalty_coeff)
+
+    def _reset_osqp_objs(self):
+        """Resets the quadratic and linear objectives in preparation for the
+        definition of a new OSQP problem"""
+        self._osqp_quad_objs = []
+        self._osqp_lin_objs = []
 
     def _lazy_spawn_osqp_cnts(self):
         if not self.hinge_created:
