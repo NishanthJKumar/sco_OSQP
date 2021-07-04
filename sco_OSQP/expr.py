@@ -1,7 +1,7 @@
-import numpy as np
 import numdifftools as nd
-from scipy.linalg import eigvalsh
+import numpy as np
 from ipdb import set_trace as st
+from scipy.linalg import eigvalsh
 
 DEFAULT_TOL = 1e-4
 
@@ -11,7 +11,7 @@ hess, and convexify method. Variables and values are assumed to be 2D numpy
 arrays.
 """
 
-N_DIGS = 6 # 10
+N_DIGS = 6  # 10
 
 
 class Expr(object):
@@ -49,8 +49,10 @@ class Expr(object):
         if len(x.shape) == 2:
             rows, cols = x.shape
             assert cols == 1
+
             def flat_f(x):
                 return self.f(x.reshape((rows, cols))).flatten()
+
             return flat_f
         elif len(x.shape) == 1:
             return self.f
@@ -69,8 +71,8 @@ class Expr(object):
     def _debug_grad(self, g1, g2, atol=DEFAULT_TOL):
         for i, g_row in enumerate(g1):
             for j, g in enumerate(g_row):
-                if not np.allclose(g, g2[i,j], atol=atol):
-                    print("{}, {}".format(i,j))
+                if not np.allclose(g, g2[i, j], atol=atol):
+                    print("{}, {}".format(i, j))
                     print(g, g2[i, j])
 
     def grad(self, x, num_check=False, atol=DEFAULT_TOL):
@@ -88,8 +90,12 @@ class Expr(object):
             num_grad = self._num_grad(x)
             if not np.allclose(num_grad, gradient, atol=atol):
                 self._debug_grad(gradient, num_grad, atol=atol)
-                raise Exception("Numerical and analytical gradients aren't close. \
-                    \nnum_grad: {0}\nana_grad: {1}\n".format(num_grad, gradient))
+                raise Exception(
+                    "Numerical and analytical gradients aren't close. \
+                    \nnum_grad: {0}\nana_grad: {1}\n".format(
+                        num_grad, gradient
+                    )
+                )
         self._grad_cache[key] = gradient.copy()
         return gradient
 
@@ -113,8 +119,12 @@ class Expr(object):
         if num_check:
             num_hess = self._num_hess(x)
             if not np.allclose(num_hess, hessian, atol=atol):
-                raise Exception("Numerical and analytical hessians aren't close. \
-                    \nnum_hess: {0}\nana_hess: {1}\n".format(num_hess, hessian))
+                raise Exception(
+                    "Numerical and analytical hessians aren't close. \
+                    \nnum_hess: {0}\nana_hess: {1}\n".format(
+                        num_hess, hessian
+                    )
+                )
         return hessian
 
     def convexify(self, x, degree=1):
@@ -128,7 +138,7 @@ class Expr(object):
         res = None
         if degree == 1:
             A = self.grad(x)
-            b = - A.dot(x) + self.eval(x)
+            b = -A.dot(x) + self.eval(x)
             res = AffExpr(A, b)
         elif degree == 2:
             hess = self.hess(x)
@@ -136,11 +146,11 @@ class Expr(object):
             min_eig_val = min(eig_vals)
             if min_eig_val < 0:
                 # print(("    negative hessian detected. adjusting by {0}.".format(-min_eig_val)))
-                hess = hess - np.eye(hess.shape[0])*min_eig_val
+                hess = hess - np.eye(hess.shape[0]) * min_eig_val
             grad = self.grad(x)
             Q = hess
             A = grad - np.transpose(x).dot(hess)
-            b = 0.5*np.transpose(x).dot(hess).dot(x) - grad.dot(x) + self.eval(x)
+            b = 0.5 * np.transpose(x).dot(hess).dot(x) - grad.dot(x) + self.eval(x)
             res = QuadExpr(Q, A, b)
         else:
             raise NotImplementedError
@@ -181,7 +191,7 @@ class QuadExpr(Expr):
         """
         expr is 0.5*x'Qx + Ax + b
         """
-        assert A.shape[0] == 1, 'Can only define scalar quadrative expressions'
+        assert A.shape[0] == 1, "Can only define scalar quadrative expressions"
 
         # ensure the correct shapes for all the arguments
         assert Q.shape[0] == Q.shape[1]
@@ -194,14 +204,15 @@ class QuadExpr(Expr):
         self.x_shape = (A.shape[1], 1)
 
     def eval(self, x):
-        return 0.5*x.T.dot(self.Q.dot(x)) + self.A.dot(x) + self.b
+        return 0.5 * x.T.dot(self.Q.dot(x)) + self.A.dot(x) + self.b
 
     def grad(self, x):
         assert x.shape == self.x_shape
-        return 0.5*(self.Q.dot(x) + self.Q.T.dot(x)) + self.A.T
+        return 0.5 * (self.Q.dot(x) + self.Q.T.dot(x)) + self.A.T
 
     def hess(self, x):
         return self.Q.copy()
+
 
 class AbsExpr(Expr):
     """
@@ -223,6 +234,7 @@ class AbsExpr(Expr):
 
     def hess(self, x):
         raise NotImplementedError
+
 
 class HingeExpr(Expr):
     """
@@ -247,6 +259,7 @@ class HingeExpr(Expr):
     def hess(self, x):
         raise NotImplementedError
 
+
 class CompExpr(Expr):
     """
     Comparison Expression
@@ -269,15 +282,20 @@ class CompExpr(Expr):
         raise NotImplementedError
 
     def grad(self, x):
-        raise Exception("The gradient is not well defined for comparison \
-            expressions")
+        raise Exception(
+            "The gradient is not well defined for comparison \
+            expressions"
+        )
 
     def hess(self, x):
-        raise Exception("The hessian is not well defined for comparison \
-            expressions")
+        raise Exception(
+            "The hessian is not well defined for comparison \
+            expressions"
+        )
 
     def convexify(self, x, degree=1):
         raise NotImplementedError
+
 
 class EqExpr(CompExpr):
     """
@@ -309,10 +327,11 @@ class EqExpr(CompExpr):
 
         aff_expr = self.expr.convexify(x, degree=1)
         aff_expr.b = aff_expr.b - self.val
-        res =  AbsExpr(aff_expr)
+        res = AbsExpr(aff_expr)
 
         self._convexify_cache[key] = res
         return res
+
 
 class LEqExpr(CompExpr):
     """
@@ -328,10 +347,9 @@ class LEqExpr(CompExpr):
         expr_val = self.expr.eval(x)
         if negated:
             ## need the tolerance to go the other way if its negated
-            return not np.all(expr_val <= self.val - tol*np.ones(expr_val.shape))
+            return not np.all(expr_val <= self.val - tol * np.ones(expr_val.shape))
         else:
-            return np.all(expr_val <= self.val + tol*np.ones(expr_val.shape))
-
+            return np.all(expr_val <= self.val + tol * np.ones(expr_val.shape))
 
     def convexify(self, x, degree=1):
         """
@@ -348,10 +366,11 @@ class LEqExpr(CompExpr):
 
         aff_expr = self.expr.convexify(x, degree=1)
         aff_expr.b = aff_expr.b - self.val
-        res =  HingeExpr(aff_expr)
+        res = HingeExpr(aff_expr)
 
         self._convexify_cache[key] = res
         return res
+
 
 class LExpr(CompExpr):
     """
@@ -367,10 +386,9 @@ class LExpr(CompExpr):
         expr_val = self.expr.eval(x)
         if negated:
             ## need the tolerance to go the other way if its negated
-            return not np.all(expr_val < self.val - tol*np.ones(expr_val.shape))
+            return not np.all(expr_val < self.val - tol * np.ones(expr_val.shape))
         else:
-            return np.all(expr_val < self.val + tol*np.ones(expr_val.shape))
-
+            return np.all(expr_val < self.val + tol * np.ones(expr_val.shape))
 
     def convexify(self, x, degree=1):
         """
@@ -387,10 +405,11 @@ class LExpr(CompExpr):
 
         aff_expr = self.expr.convexify(x, degree=1)
         aff_expr.b = aff_expr.b - self.val
-        res =  HingeExpr(aff_expr)
+        res = HingeExpr(aff_expr)
 
         self._convexify_cache[key] = res
         return res
+
 
 class BoundExpr(object):
     """
@@ -427,7 +446,7 @@ class TFExpr(Expr):
     wrapper around exprs defined by a tensorflow graph. Leverages
     automated differentition.
     """
+
     def __init__(self, f, grad=None, hess=None, sess=None):
         self.sess = sess
         return super(TFExpr, self).__init__(f, grad, hess)
-

@@ -1,6 +1,14 @@
 import time
 from collections import defaultdict
 
+import numpy as np
+import osqp
+import scipy
+
+from sco_OSQP.osqplinearconstraint import OSQPLinearConstraint
+from sco_OSQP.osqplinearobj import OSQPLinearObj
+from sco_OSQP.osqpquadraticobj import OSQPQuadraticObj
+
 from .expr import *
 
 
@@ -13,6 +21,8 @@ class Prob(object):
     def __init__(self, callback=None):
         """
         _vars: variables in this problem
+        _osqp_vars: a set of all the osqp_vars in this problem. This will be used to
+            construct the x vector whenever a call is made to the OSQP solver.
 
         _quad_obj_exprs: list of quadratic expressions in the objective
         _nonquad_obj_exprs: list of non-quadratic expressions in the objective
@@ -23,15 +33,23 @@ class Prob(object):
         _penalty_exprs: list of penalty term expressions (approximations of the
             non-linear constraint expressions in _nonlin_cnt_exprs)
 
-        _grb_penalty_cnts: list of Gurobi constraints that are generated when
+        _osqp_quad_objs: list of OSQPQuadraticObjs that keep track of the quadratic objectives
+            that will be passed to the QP
+        _osqp_lin_objs: list of OSQPLinearObjectives that keep track of the linear objectives
+            that will be passed to the QP
+        _osqp_lin_cnt_exprs: list of OSQPLinearConstraints that keep track of the linear constraints
+            that will be passed to the QP
+
+        _osqp_penalty_cnts: list of Gurobi constraints that are generated when
             adding the hinge and absolute value terms from the penalty terms.
         _pgm: Positive Gurobi variable manager provides a lazy way of generating
             positive Gurobi variables so that there are less model updates.
 
-        _bexpr_to_grb_expr: dictionary that caches quadratic bound expressions
+        _bexpr_to_osqp_expr: dictionary that caches quadratic bound expressions
             with their corresponding Gurobi expression
         """
         self._vars = set()
+        self._osqp_vars = set()
         if callback is not None:
             self._callback = callback
         else:
@@ -45,9 +63,14 @@ class Prob(object):
         self._nonquad_obj_exprs = []
         self._approx_obj_exprs = []
 
-        # linear constraints are added directly to the model so there's no
-        # need for a _lin_cnt_exprs variable
         self._nonlin_cnt_exprs = []
+
+        # These are lists of OSQPQuadraticObj's, OSQPLinearObj's and OSQPLinearConstraints
+        # that will directly be used to construct the P, q and A matrices that define
+        # the final QP to be solved.
+        self._osqp_quad_objs = []
+        self._osqp_lin_objs = []
+        self._osqp_lin_cnt_exprs = []
 
         # list of constraints that will hold the hinge constraints
         # for each non-linear constraint, is a pair of constraints
@@ -55,17 +78,15 @@ class Prob(object):
         self.hinge_created = False
 
         self._penalty_exprs = []
-        # self._grb_penalty_cnts = []  # hinge and abs value constraints
+        # self._osqp_penalty_cnts = []  # hinge and abs value constraints
         # self._pgm = PosGRBVarManager(self._model)
-
-        self._bexpr_to_grb_expr = {}
 
         ## group-id (str) -> cnt-set (set of constraints)
         self._cnt_groups = defaultdict(set)
         self._cnt_groups_overlap = defaultdict(set)
         self._penalty_groups = []
         self.nonconverged_groups = []
-        # self.gid2ind = {}
+        self.gid2ind = {}
 
     def add_obj_expr(self, bound_expr):
         """
@@ -86,6 +107,9 @@ class Prob(object):
     def add_var(self, var):
         self._vars.add(var)
 
+    def add_osqp_var(self, osqp_var):
+        self._osqp_vars.add(osqp_var)
+
     def add_cnt_expr(self, bound_expr, group_ids=None):
         """
         Adds a bound expression (bound_expr) to the problem's constraints.
@@ -101,12 +125,10 @@ class Prob(object):
         var = bound_expr.var
         assert isinstance(comp_expr, CompExpr)
         if isinstance(expr, AffExpr):
-            # adding constraint directly into model
-            grb_expr, grb_cnt = self._aff_expr_to_grb_expr(expr, var)
             if isinstance(comp_expr, EqExpr):
-                self._add_np_array_grb_cnt(grb_expr, GRB.EQUAL, comp_expr.val)
+                self._add_osqp_cnt_from_aff_expr(expr, var, "eq", comp_expr.val)
             elif isinstance(comp_expr, LEqExpr):
-                self._add_np_array_grb_cnt(grb_expr, GRB.LESS_EQUAL, comp_expr.val)
+                self._add_osqp_cnt_from_aff_expr(expr, var, "leq", comp_expr.val)
         else:
             self._nonlin_cnt_exprs.append(bound_expr)
             self._reset_hinge_cnts()
@@ -124,28 +146,81 @@ class Prob(object):
 
     def optimize(self):
         """
-        Calls the Gurobi optimizer on the current QP approximation with a given
+        Calls the OSQP optimizer on the current QP approximation with a given
         penalty coefficient.
-
-        Temporary Gurobi constraints and variables from the previous optimize
-        call are deleted.
-
-        The Gurobi objective is computed by translating all the expressions
-        in the quadratically approximated objective (self._quad_obj_expr) and
-        in the penalty approximation of the constraints (self._penalty_exprs)
-        to Gurobi expressions, and summing them. The temporary constraints and
-        variables created from the translation process are saved so that they
-        can be deleted later.
-
-        The Gurobi constraints are the linear constraints which have already
-        been added to the model when constraints were added to this problem.
         """
-        self._model.optimize()
-        try:
-            self._update_vars()
-        except Exception as e:
-            print(e)
-            print(("Model status:", self._model.status))
+        # First, we need to setup the problem as described here: https://osqp.org/docs/solver/index.html
+        # Specifically, we need to start by constructing the x vector that contains all the
+        # OSQPVars that are part of the QP. This will take the form of a mapping from OSQPVar to
+        # index within the x vector.
+        var_to_index_dict = {}
+        idx = 0
+        for osqp_var in self._osqp_vars:
+            var_to_index_dict[osqp_var] = idx
+            idx += 1
+        num_osqp_vars = len(self._osqp_vars)
+
+        # Construct the q-vector by looping through all the linear objectives
+        q_vec = np.zeros(idx)
+        for lin_obj in self._osqp_lin_objs:
+            q_vec[var_to_index_dict[lin_obj.osqp_var]] = lin_obj.coeff
+
+        # Next, construct the P-matrix by looping through all quadratic objectives
+
+        # Since P must be upper-triangular, the shape must be (num_osqp_vars, num_osqp_vars)
+        P_mat = np.zeros((num_osqp_vars, num_osqp_vars))
+        for quad_obj in self._osqp_quad_objs:
+            for i in range(quad_obj.coeffs.shape[0]):
+                var1_index = var_to_index_dict[quad_obj.osqp_vars1[i]]
+                var2_index = var_to_index_dict[quad_obj.osqp_vars2[i]]
+                # To ensure P_mat is upper-triangular, we need to sort these indices in
+                # ascending order.
+                idx1, idx2 = sorted((var1_index, var2_index))
+                P_mat[idx1, idx2] += quad_obj.coeffs[i]
+
+        # Next, setup the A-matrix and l and u vectors
+        num_var_constraints = sum(
+            osqp_vars.shape[0]
+            for var in self._vars
+            for osqp_vars in var.get_osqp_vars()
+        )
+        A_mat = np.zeros(
+            (num_var_constraints + len(self._osqp_lin_cnt_exprs), num_osqp_vars)
+        )
+        l_vec = np.zeros(num_var_constraints + len(self._osqp_lin_cnt_exprs))
+        u_vec = np.zeros(num_var_constraints + len(self._osqp_lin_cnt_exprs))
+        # First add all the linear constraints
+        row_num = 0
+        for lin_constraint in self._osqp_lin_cnt_exprs:
+            l_vec[row_num] = lin_constraint.lb
+            u_vec[row_num] = lin_constraint.ub
+            for i in range(lin_constraint.coeffs.shape[0]):
+                A_mat[
+                    row_num, var_to_index_dict[lin_constraint.osqp_vars[i]]
+                ] = lin_constraint.coeffs[i]
+            row_num += 1
+
+        # Then, add the trust regions for every variable as constraints
+        # for var in self._vars:
+        for var in self._vars:
+            osqp_vars = var.get_osqp_vars()
+            for osqp_var_i in range(osqp_vars.shape[0]):
+                A_mat[row_num, var_to_index_dict[osqp_vars[osqp_var_i, 0]]] = 1.0
+                l_vec[row_num] = osqp_vars[osqp_var_i, 0].get_lower_bound()
+                u_vec[row_num] = osqp_vars[osqp_var_i, 0].get_upper_bound()
+                row_num += 1
+
+        # Finally, construct the matrices and call the OSQP Solver!
+        P_mat = scipy.sparse.csc_matrix(P_mat)
+        A_mat = scipy.sparse.csc_matrix(A_mat)
+        m = osqp.OSQP()
+        m.setup(P=P_mat, q=q_vec, A=A_mat, l=l_vec, u=u_vec)
+        solve_res = m.solve()
+
+        # If the solve succeeded, update all the variables with these new values, then
+        # run he callback before returning true
+        self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
+        self._update_vars()
         self._callback()
 
     def _reset_hinge_cnts(self):
@@ -163,189 +238,212 @@ class Prob(object):
             cnts.append(self._model.addConstr(grb_expr, sense, val[index]))
         return cnts
 
-    # @profile
-    def _expr_to_grb_expr(self, bound_expr):
+    def _add_osqp_objs_and_cnts_from_expr(self, bound_expr):
         """
-        Translates AffExpr, QuadExpr, HingeExpr and AbsExpr to Gurobi
-        expressions and returns the corresponding Gurobi expressions and
-        constraints. If there are no Gurobi constraints, an empty list is
-        returned. Otherwise, this method raises an exception.
+        Uses AffExpr, QuadExpr, HingeExpr and AbsExpr to extract
+        OSQP solver compatible data structures. Depending on the expression type,
+        appends elements to self._osqp_quad_objs, or self._osqp_lin_objs.
         """
         expr = bound_expr.expr
         var = bound_expr.var
 
         if isinstance(expr, AffExpr):
-            return self._aff_expr_to_grb_expr(expr, var)
+            self._add_to_lin_objs_and_cnts_from_aff_expr(expr, var)
         elif isinstance(expr, QuadExpr):
-            if bound_expr in self._bexpr_to_grb_expr:
-                return self._bexpr_to_grb_expr[bound_expr], []
-            else:
-                grb_expr, cnts = self._quad_expr_to_grb_expr(expr, var)
-                self._bexpr_to_grb_expr[bound_expr] = grb_expr
-                return grb_expr, cnts
+            self._add_to_quad_and_lin_objs_from_quad_expr(expr, var)
         elif isinstance(expr, HingeExpr):
-            return self._hinge_expr_to_grb_expr(expr, var)
+            self._add_to_lin_objs_and_cnts_from_hinge_expr(expr, var)
         elif isinstance(expr, AbsExpr):
-            return self._abs_expr_to_grb_expr(expr, var)
+            self._add_to_lin_objs_and_cnts_from_abs_expr(expr, var)
         elif isinstance(expr, CompExpr):
             raise Exception(
                 "Comparison Expressions cannot be converted to \
-                a Gurobi expression. Use add_cnt_expr instead"
+                OSQP problem objectives; use _add_osqp_cnt_from_aff_expr \
+                instead"
             )
         else:
             raise Exception(
                 "This type of Expression cannot be converted to\
-                a Gurobi expression."
+                an OSQP objective."
             )
 
-    # @profile
-    def _aff_expr_to_grb_expr(self, aff_expr, var):
-        grb_var = var.get_grb_vars()
-        grb_exprs = []
-        A = aff_expr.A
-        b = aff_expr.b
-        for i in range(A.shape[0]):
-            grb_expr = grb.LinExpr()
-            (inds,) = np.nonzero(A[i, :])
-            grb_expr += b[i]
-            grb_expr.addTerms(A[i, inds].tolist(), grb_var[inds, 0].tolist())
-            grb_exprs.append([grb_expr])
-        return np.array(grb_exprs), []
+    def _add_to_lin_objs_and_cnts_from_aff_expr(self, expr, var):
+        raise NotImplementedError
 
-    # #@profile
-    def _quad_expr_to_grb_expr(self, quad_expr, var):
-        x = var.get_grb_vars()
-        grb_expr = grb.QuadExpr()
+    # def _hinge_expr_to_grb_expr(self, hinge_expr, var):
+    #     aff_expr = hinge_expr.expr
+    #     assert isinstance(aff_expr, AffExpr)
+    #     grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
+    #     grb_hinge = self._pgm.get_array(grb_expr.shape)
+    #     cnts = self._add_np_array_grb_cnt(grb_expr, GRB.LESS_EQUAL, grb_hinge)
+    #     return grb_hinge, cnts
+
+    def _add_to_lin_objs_and_cnts_from_hinge_expr(self, expr, var):
+        raise NotImplementedError
+
+    # def _abs_expr_to_grb_expr(self, abs_expr, var):
+    #     aff_expr = abs_expr.expr
+    #     assert isinstance(aff_expr, AffExpr)
+    #     grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
+    #     pos = self._pgm.get_array(grb_expr.shape)
+    #     neg = self._pgm.get_array(grb_expr.shape)
+    #     cnts = self._add_np_array_grb_cnt(grb_expr, GRB.EQUAL, pos - neg)
+    #     return pos + neg, cnts
+
+    def _add_to_lin_objs_and_cnts_from_abs_expr(self, expr, var):
+        raise NotImplementedError
+
+    def _add_osqp_cnt_from_aff_expr(self, aff_expr, var, cnt_type, cnt_val):
+        """
+        Uses aff_expr to create OSQPLinearConstraints of cnt_type that are then
+        appended to self._osqp_lin_cnt_exprs
+        """
+        osqp_vars = var.get_osqp_vars()
+        A_mat = aff_expr.A
+        b_vec = aff_expr.b
+        for i in range(A_mat.shape[0]):
+            (inds,) = np.nonzero(A_mat[i, :])
+            # If the constraint to be added is an equality constraint,
+            # compute the upper and lower bounds
+            if cnt_type is "eq":
+                # the upper and lower bounds must be equal, and they must be
+                # whatever the cnt_val was minus the constant term
+                curr_lb = cnt_val[i] - b_vec[i]
+                curr_ub = cnt_val[i] - b_vec[i]
+            elif cnt_type is "leq":
+                # only the upper bound needs to be set; the lower bound is negative
+                # infinity
+                curr_lb = -np.inf
+                curr_ub = cnt_val[i] - b_vec[i]
+            else:
+                raise NotImplementedError
+
+            curr_cnt_expr = OSQPLinearConstraint(
+                osqp_vars[inds, 0], A_mat[i, inds], curr_lb, curr_ub
+            )
+            self._osqp_lin_cnt_exprs.append(curr_cnt_expr)
+
+    def _add_to_quad_and_lin_objs_from_quad_expr(self, quad_expr, var):
+        x = var.get_osqp_vars()
         Q = quad_expr.Q
         rows, cols = x.shape
         assert cols == 1
         inds = np.nonzero(Q)
-        coeffs = 0.5 * Q[inds]
+        coeffs = 2 * Q[inds]  # Need to multiply by 2 because OSQP expects 0.5*x.T*Q*x
         v1 = x[inds[0], 0]
         v2 = x[inds[1], 0]
-        grb_expr.addTerms(coeffs.tolist(), v1.tolist(), v2.tolist())
+        # Create the new QuadraticObj term and append it to the problem's running list of
+        # such terms
+        self._osqp_quad_objs.append(OSQPQuadraticObj(v1, v2, coeffs))
         inds = np.nonzero(quad_expr.A)
-        coeffs = quad_expr.A[inds]
-        v1 = x[inds[1], 0]
-        grb_expr.addTerms(coeffs.tolist(), v1.tolist())
-        grb_expr = grb_expr + quad_expr.b
-        return np.array([[grb_expr]]), []
-
-    # @profile
-    def _hinge_expr_to_grb_expr(self, hinge_expr, var):
-        aff_expr = hinge_expr.expr
-        assert isinstance(aff_expr, AffExpr)
-        grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
-        grb_hinge = self._pgm.get_array(grb_expr.shape)
-        cnts = self._add_np_array_grb_cnt(grb_expr, GRB.LESS_EQUAL, grb_hinge)
-        return grb_hinge, cnts
-
-    def _abs_expr_to_grb_expr(self, abs_expr, var):
-        aff_expr = abs_expr.expr
-        assert isinstance(aff_expr, AffExpr)
-        grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
-        pos = self._pgm.get_array(grb_expr.shape)
-        neg = self._pgm.get_array(grb_expr.shape)
-        cnts = self._add_np_array_grb_cnt(grb_expr, GRB.EQUAL, pos - neg)
-        return pos + neg, cnts
+        lin_coeffs = quad_expr.A[inds]
+        # Because quad_expr.A is of shape (1,2), inds[1] corresponds to the nonzero
+        # vars
+        lin_vars = x[inds[1], 0]
+        assert lin_coeffs.shape == lin_vars.shape
+        for lin_var, lin_coeff in zip(lin_vars.tolist(), lin_coeffs.tolist()):
+            self._osqp_lin_objs.append(OSQPLinearObj(lin_var, lin_coeff))
 
     def find_closest_feasible_point(self):
         """
         Finds the closest point (l2 norm) to the initialization that satisfies
         the linear constraints.
         """
-        self._del_old_grb_cnts()
-        self._model.update()
+        # Store a mapping of variables to coefficients within the q vector of the
+        # OSQP problem to be formed
+        var_to_q_arr_val_dict = {}
+        q_arr = np.array([])
 
-        obj = grb.QuadExpr()
+        # Loop thru all variables available. For each variable, get the values that
+        # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
+        # values, and the quadratic objective coefficient is 1.
+        # Use this fact to update var_to_index_dict and q_arr
         for var in self._vars:
-            g_var = var.get_grb_vars()
+            osqp_vars = var.get_osqp_vars()
             val = var.get_value()
             if val is not None:
-                assert g_var.shape == val.shape
+                assert osqp_vars.shape == val.shape
                 inds = np.where(~np.isnan(val))
                 val = val[inds]
-                g_var = g_var[inds]
-                obj += np.sum((g_var - val).T.dot(g_var - val))
-                # for i in np.ndindex(g_var.shape):
-                #    if not np.isnan(val[i]):
-                #            obj += g_var[i]*g_var[i] - 2*val[i]*g_var[i] + val[i]*val[i]
+                nonnan_osqp_vars = osqp_vars[inds]
+                val_arr = val.flatten()
+                for i, nonnan_osqp_var in enumerate(
+                    nonnan_osqp_vars.flatten().tolist()
+                ):
+                    # We may see the same variable name multiple times!
+                    # We need to account for this possibility with dict.get()
+                    if var_to_q_arr_val_dict.get(nonnan_osqp_var) is not None:
+                        var_to_q_arr_val_dict[nonnan_osqp_var] += -2 * val_arr[i]
+                    else:
+                        var_to_q_arr_val_dict[nonnan_osqp_var] = -2 * val_arr[i]
 
-            # grb_exprs = []
-            # for bound_expr in self._quad_obj_exprs:
-            #     grb_expr, grb_cnts = self._expr_to_grb_expr(bound_expr)
-            #     self._grb_penalty_cnts.extend(grb_cnts)
-            #     grb_exprs.extend(grb_expr.flatten().tolist())
+        # Now that we've constructed a mapping from each variable to its linear objective value
+        # (q_arr_val), we can construct the final P matrix and q vector needed to define the QP
+        num_vars_in_prob = len(self._osqp_vars)
+        P_mat = np.zeros((num_vars_in_prob, num_vars_in_prob))
+        q_arr = np.zeros(num_vars_in_prob)
+        var_to_osqp_indices_dict = {}
+        for i, var in enumerate(self._osqp_vars):
+            var_to_osqp_indices_dict[var] = i
 
-            # obj += grb.quicksum(grb_exprs)
+        for i, var in enumerate(var_to_q_arr_val_dict.keys()):
+            # Set the index corresponding to the variable to 2 in P_mat to offset the
+            # 1/2 constant
+            var_index = var_to_osqp_indices_dict[var]
+            P_mat[var_index, var_index] = 2.0
+            q_arr[var_index] = var_to_q_arr_val_dict[var]
 
-        self._model.setObjective(obj)
-        self._model.optimize()
+        # Solve the QP using OSQP
+        P_mat = scipy.sparse.csc_matrix(P_mat)
+        m = osqp.OSQP()
+        m.setup(P=P_mat, q=q_arr)
 
-        if self._model.status != 2:
+        solve_res = m.solve()
+
+        # If the solve failed, just return False
+        if solve_res.info.status_val != 1:
             return False
 
-        # if self._model.status == 3:
-        #     self._model.optimize()
-        # elif self._model.status != 2:
-        #     self._model.write('infeasible.lp')
-        #     raise Exception('Failed to satisfy linear equalities. Infeasible Constraint set written to infeasible.lp')
-        try:
-            self._update_vars()
-        except Exception as e:
-            print(e)
-            print(("Model status:", self._model.status))
+        # If the solve succeeded, update all the variables with these new values, then
+        # run he callback before returning true
+        self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
+        self._update_vars()
         self._callback()
         return True
 
-    # @profile
     def update_obj(self, penalty_coeff=0.0):
-        self._lazy_spawn_grb_cnts()
-
-        grb_exprs = []
+        self._lazy_spawn_osqp_cnts()
         for bound_expr in self._quad_obj_exprs + self._approx_obj_exprs:
-            grb_expr, grb_cnts = self._expr_to_grb_expr(bound_expr)
-            # self._grb_penalty_cnts.extend(grb_cnts)
-            grb_exprs.extend(grb_expr.flatten().tolist())
+            self._add_osqp_objs_and_cnts_from_expr(bound_expr)
 
         for i, bound_expr in enumerate(self._penalty_exprs):
+            # TODO: Get these next two lines to run when necessary
             grb_expr = self._update_nonlin_cnt(bound_expr, i).flatten()
             grb_exprs.extend(grb_expr * penalty_coeff)
 
-        obj = grb.quicksum(grb_exprs)
-        self._model.setObjective(obj)
-        self._model.update()
-
-    def _del_old_grb_cnts(self):
-        for cnt in self._grb_penalty_cnts:
-            self._model.remove(cnt)
-        self.hinge_created = False
-
-    def _lazy_spawn_grb_cnts(self):
-        if self.hinge_created:
-            return
-        self._del_old_grb_cnts()
-        self._grb_penalty_cnts = []
-        self._grb_penalty_exprs = []
-        self._grb_nz = []
-        for bound_expr in self._penalty_exprs:
-            grb_expr, grb_cnts = self._expr_to_grb_expr(bound_expr)
-            self._grb_penalty_cnts.append(grb_cnts)
-            self._grb_penalty_exprs.append(grb_expr)
-            self._grb_nz.append(np.nonzero(bound_expr.expr.expr.A))
-        self._model.update()
-        self.hinge_created = True
+    def _lazy_spawn_osqp_cnts(self):
+        if not self.hinge_created:
+            self._osqp_penalty_cnts = []
+            self._osqp_penalty_exprs = []
+            self._osqp_nz = []
+            for bound_expr in self._penalty_exprs:
+                self._osqp_nz.append(np.nonzero(bound_expr.expr.expr.A))
+                self._add_osqp_objs_and_cnts_from_expr(bound_expr)
+                self._osqp_penalty_cnts.append(grb_cnts)
+                self._osqp_penalty_exprs.append(grb_expr)
+            self.hinge_created = True
 
     # @profile
     def _update_nonlin_cnt(self, bexpr, ind):
+        # TODO: Port this to OSQP
         expr, var = bexpr.expr, bexpr.var
         if isinstance(expr, HingeExpr) or isinstance(expr, AbsExpr):
             aff_expr = expr.expr
             assert isinstance(aff_expr, AffExpr)
             A, b = aff_expr.A, aff_expr.b
-            cnts = self._grb_penalty_cnts[ind]
-            grb_expr = self._grb_penalty_exprs[ind]
-            old_nz = self._grb_nz[ind]
+            cnts = self._osqp_penalty_cnts[ind]
+            grb_expr = self._osqp_penalty_exprs[ind]
+            old_nz = self._osqp_nz[ind]
             grb_vars = var.get_grb_vars()
             nz = np.nonzero(A)
 
@@ -363,7 +461,7 @@ class Prob(object):
                 i, j = nz[0][idx], nz[1][idx]
                 self._model.chgCoeff(cnts[i], grb_vars[j, 0], A[i, j])
 
-            self._grb_nz[ind] = nz
+            self._osqp_nz[ind] = nz
             return grb_expr
         else:
             raise NotImplementedError
@@ -482,10 +580,14 @@ class Prob(object):
 
         return value
 
+    def _update_osqp_vars(self, var_to_osqp_indices_dict, solver_values):
+        """
+        Updates the variables values based on the OSQP solution
+        """
+        for osqp_var in var_to_osqp_indices_dict.keys():
+            osqp_var.val = solver_values[var_to_osqp_indices_dict[osqp_var]]
+
     def _update_vars(self):
-        """
-        Updates the variables values
-        """
         for var in self._vars:
             var.update()
 

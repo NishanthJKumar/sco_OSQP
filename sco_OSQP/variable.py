@@ -1,35 +1,34 @@
-import gurobipy as grb
 import numpy as np
-from ipdb import set_trace as st
+
+from sco_OSQP.osqpvar import OSQPVar
 
 
 class Variable(object):
     """
     Variable
 
-    Manages Gurobi variables by maintaining an ordering of Gurobi variables,
+    Manages low-level variables by maintaining an ordering of these variables,
     """
 
-    def __init__(self, grb_vars, value=None):
+    def __init__(self, osqp_vars, value=None):
         """
-        _grb_vars: Numpy array of Gurobi variables. The ordering of the Gurobi
-        variables must be maintained.
-        _value: Numpy array of the current value of this variable
+        _osqp_vars: Numpy array of OSQPVars that represent the variables
+        _value: Numpy array of the current values of these variables
         _saved_value: saved value of this variable
         """
-        assert isinstance(grb_vars, np.ndarray)
-        assert len(grb_vars) > 0
-        self._grb_vars = grb_vars.copy()
+        assert isinstance(osqp_vars, np.ndarray)
+        assert len(osqp_vars) > 0
+        self._osqp_vars = osqp_vars.copy()
         if value is not None:
-            assert grb_vars.shape == value.shape
+            assert osqp_vars.shape == value.shape
             assert isinstance(value, np.ndarray)
             self._value = value.copy()
         else:
             self._value = None
         self._saved_value = None
 
-    def get_grb_vars(self):
-        return self._grb_vars.copy()
+    def get_osqp_vars(self):
+        return self._osqp_vars
 
     def get_value(self):
         if self._value is not None:
@@ -40,31 +39,33 @@ class Variable(object):
     def add_trust_region(self, trust_box_size):
         """
         Adds a trust region around the saved value (self._saved_value) by
-        changing the upper and lower bounds of the Gurobi variables
-        self._grb_vars
+        changing the upper and lower bounds of the underlying OSQP variables
         """
         assert self._saved_value is not None
-        for index, grb_var in np.ndenumerate(self._grb_vars):
-            grb_var.lb = self._saved_value[index] - trust_box_size
-            grb_var.ub = self._saved_value[index] + trust_box_size
+        for index, osqp_var in np.ndenumerate(self._osqp_vars):
+            osqp_var.set_lower_bound(self._saved_value[index] - trust_box_size)
+            osqp_var.set_upper_bound(self._saved_value[index] + trust_box_size)
 
     def update(self):
         """
-        If the gurobi variables have valid values, update self._value to reflect
-        the values in the gurobi variables.
-
-        When the gurobi variables do not have valid values, update will raise a
-        GurobiError
+        If the OSQP variables have valid values, update self._value to reflect
+        the values in these variables.
         """
-        value = np.zeros(self._grb_vars.shape)
-        for index, grb_var in np.ndenumerate(self._grb_vars):
-            value[index] = grb_var.X
+        value = np.zeros(self._osqp_vars.shape)
+        for index, osqp_var in np.ndenumerate(self._osqp_vars):
+            if osqp_var.val is not None:
+                value[index] = osqp_var.val
+            else:
+                raise ValueError(
+                    f"The variable {osqp_var.var_name} does not have a legitimate value"
+                )
         self._value = value
 
     def save(self):
         """
         Save the current value.
         """
+        assert not np.any(np.isnan(self._value.copy()))
         self._saved_value = self._value.copy()
 
     def restore(self):
