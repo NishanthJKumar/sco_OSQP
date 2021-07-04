@@ -586,6 +586,9 @@ class Prob(object):
         for var in self._vars:
             var.update()
 
+    def batch_add_lin_cnts(self, list_of_lin_cnts):
+        self._osqp_lin_cnt_exprs.extend(list_of_lin_cnts)
+
     def save(self):
         """
         Saves the problem's current state by saving the values of all the
