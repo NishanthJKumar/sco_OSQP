@@ -8,6 +8,7 @@ import scipy
 from sco_OSQP.osqplinearconstraint import OSQPLinearConstraint
 from sco_OSQP.osqplinearobj import OSQPLinearObj
 from sco_OSQP.osqpquadraticobj import OSQPQuadraticObj
+from sco_OSQP.osqpvar import OSQPVar
 
 from .expr import *
 
@@ -256,30 +257,82 @@ class Prob(object):
             )
 
     def _add_to_lin_objs_and_cnts_from_aff_expr(self, expr, var):
-        raise NotImplementedError
+        # NOTE: There don't seem to be any constraints added by an affine
+        # expression
+        osqp_vars = var.get_osqp_vars()
+        A_mat = aff_expr.A
+        b_vec = aff_expr.b
 
-    # def _hinge_expr_to_grb_expr(self, hinge_expr, var):
-    #     aff_expr = hinge_expr.expr
-    #     assert isinstance(aff_expr, AffExpr)
-    #     grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
-    #     grb_hinge = self._pgm.get_array(grb_expr.shape)
-    #     cnts = self._add_np_array_grb_cnt(grb_expr, GRB.LESS_EQUAL, grb_hinge)
-    #     return grb_hinge, cnts
+        for i in range(A_mat.shape[0]):
+            (inds,) = np.nonzero(A[i, :])
+            for coeff, osqp_var in zip(
+                A[i, inds].tolist(), osqp_vars[inds, 0].tolist()
+            ):
+                self._osqp_penalty_exprs.append(OSQPLinearObj(osqp_var, coeff))
 
-    def _add_to_lin_objs_and_cnts_from_hinge_expr(self, expr, var):
-        raise NotImplementedError
+    def _add_to_lin_objs_and_cnts_from_hinge_expr(self, hinge_expr, var):
+        aff_expr = hinge_expr.expr
+        assert isinstance(aff_expr, AffExpr)
+        osqp_vars = var.get_osqp_vars()
+        A_mat = aff_expr.A
+        b_vec = aff_expr.b
 
-    # def _abs_expr_to_grb_expr(self, abs_expr, var):
-    #     aff_expr = abs_expr.expr
-    #     assert isinstance(aff_expr, AffExpr)
-    #     grb_expr, _ = self._aff_expr_to_grb_expr(aff_expr, var)
-    #     pos = self._pgm.get_array(grb_expr.shape)
-    #     neg = self._pgm.get_array(grb_expr.shape)
-    #     cnts = self._add_np_array_grb_cnt(grb_expr, GRB.EQUAL, pos - neg)
-    #     return pos + neg, cnts
+        hinge = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
+        for _, hinge_var in np.ndenumerate(hinge):
+            self._osqp_penalty_exprs.append(OSQPLinearObj(hinge_var, 1.0))
+
+        cnts_list = []
+        for i in range(A_mat.shape[0]):
+            (inds,) = np.nonzero(A_mat[i, :])
+            # since this is a hinge constraint, the lower bound is -inf
+            curr_lb = -np.inf
+            # the constraint expr is:
+            # curr_lb <= osqp_vars[inds, 0] * A_mat[i, inds] <= hinge[i] - b_vec[i]
+            # which can be reformulated as:
+            # curr_lb <= osqp_vars[inds, 0] * A_mat[i, inds] - hinge[i] <= -b_vec[i]
+            # since curr_lb is -inf
+            curr_ub = -b_vec[i]
+            cnt_vars = np.concatenate((osqp_vars[inds, 0], hinge[i]))
+            cnt_coeffs = np.concatenate((A_mat[i, inds], np.array([-1.0])))
+            curr_cnt_expr = OSQPLinearConstraint(cnt_vars, cnt_coeffs, curr_lb, curr_ub)
+            cnts_list.append(curr_cnt_expr)
+
+        self._osqp_penalty_cnts.append(cnts_list)
 
     def _add_to_lin_objs_and_cnts_from_abs_expr(self, expr, var):
-        raise NotImplementedError
+        aff_expr = abs_expr.expr
+        assert isinstance(aff_expr, AffExpr)
+        pos = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
+        neg = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
+
+        # First, add all the objective terms
+        for pos_var in np.nditer(pos):
+            self._osqp_penalty_exprs.append(OSQPLinearObj(pos_var, 1.0))
+        for neg_var in np.nditer(neg):
+            self._osqp_penalty_exprs.append(OSQPLinearObj(neg_var, 1.0))
+
+        # Next, add the constraints
+        osqp_vars = var.get_osqp_vars()
+        A_mat = aff_expr.A
+        b_vec = aff_expr.b
+
+        cnts_list = []
+        for i in range(A_mat.shape[0]):
+            (inds,) = np.nonzero(A_mat[i, :])
+            # the constraint expr is:
+            # pos_var[i] - neg_var[i] <= osqp_vars[inds, 0] * A_mat[i, inds] + b_vec[i] <= pos_var[i] - neg_var[i]
+            # which can be reformulated as:
+            # -b_vec[i] <= osqp_vars[inds, 0] * A_mat[i, inds] - pos_var[i] + neg_var[i] <= -b_vec[i]
+            curr_ub = -b_vec[i]
+            curr_lb = -b_vec[i]
+            cnt_vars = np.concatenate((osqp_vars[inds, 0], pos_var[i], neg_var[i]))
+            cnt_coeffs = np.concatenate(
+                (A_mat[i, inds], np.array([-1.0], np.array([1.0])))
+            )
+            curr_cnt_expr = OSQPLinearConstraint(cnt_vars, cnt_coeffs, curr_lb, curr_ub)
+            cnts_list.append(curr_cnt_expr)
+
+        self._osqp_penalty_cnts.append(cnts_list)
 
     def _add_osqp_cnt_from_aff_expr(self, aff_expr, var, cnt_type, cnt_val):
         """
@@ -406,9 +459,11 @@ class Prob(object):
             self._add_osqp_objs_and_cnts_from_expr(bound_expr)
 
         for i, bound_expr in enumerate(self._penalty_exprs):
-            # TODO: Get these next two lines to run when necessary
-            grb_expr = self._update_nonlin_cnt(bound_expr, i).flatten()
-            grb_exprs.extend(grb_expr * penalty_coeff)
+            self._update_nonlin_cnt_and_add_to_qp(bound_expr, i)
+
+        for lin_obj in self._osqp_penalty_exprs:
+            lin_obj.coeff = lin_obj.coeff * penalty_coeff
+            self._osqp_lin_objs.append(lin_obj)
 
     def _reset_osqp_objs(self):
         """Resets the quadratic and linear objectives in preparation for the
@@ -424,12 +479,26 @@ class Prob(object):
             for bound_expr in self._penalty_exprs:
                 self._osqp_nz.append(np.nonzero(bound_expr.expr.expr.A))
                 self._add_osqp_objs_and_cnts_from_expr(bound_expr)
-                self._osqp_penalty_cnts.append(grb_cnts)
-                self._osqp_penalty_exprs.append(grb_expr)
             self.hinge_created = True
 
+    def create_pos_osqp_var_arr(self, shape):
+        """
+        Returns a numpy array of new, unused positive OSQP variables.
+        """
+        osqp_var_arr = np.empty(shape, dtype=object)
+        for x in np.nditer(osqp_var_arr, op_flags=["readwrite"], flags=["refs_ok"]):
+            # Create a new variable that's bound between 0 and np.inf
+            new_pos_var = OSQPVar("pos_osqp_var", 0.0, np.inf, 0.0)
+            # Add it to the set keeping track of all OSQP vars
+            self._osqp_vars.add(new_pos_var)
+            x[...] = new_pos_var
+        return osqp_var_arr
+
     # @profile
-    def _update_nonlin_cnt(self, bexpr, ind):
+    def _update_nonlin_cnt_and_add_to_qp(self, bexpr, ind):
+        """Updates all non-linear constraints and adds to new (approximated) linear
+        constraints to _osqp_lin_cnt_exprs"""
+
         # TODO: Port this to OSQP
         expr, var = bexpr.expr, bexpr.var
         if isinstance(expr, HingeExpr) or isinstance(expr, AbsExpr):
@@ -437,27 +506,44 @@ class Prob(object):
             assert isinstance(aff_expr, AffExpr)
             A, b = aff_expr.A, aff_expr.b
             cnts = self._osqp_penalty_cnts[ind]
-            grb_expr = self._osqp_penalty_exprs[ind]
             old_nz = self._osqp_nz[ind]
-            grb_vars = var.get_grb_vars()
+            osqp_vars = var.get_osqp_vars()
             nz = np.nonzero(A)
 
             for i in range(A.shape[0]):
-                ## add negative b to rhs because it
-                ## changes sides of the ineq/eq
-                cnts[i].setAttr("rhs", -b[i, 0])
+                # if lb == ub, then it is an equality constraint, so
+                # we need to set both lb and ub to -b[i, 0]
+                if cnts[i].lb == cnts[i].ub:
+                    cnts[i].lb = -b[i, 0]
+                    cnts[i].ub = -b[i, 0]
+                # otherwise, it is a LEQ constraint and so
+                # we only need to update the ub
+                else:
+                    cnts[i].ub = -b[i, 0]
 
             for idx in range(old_nz[0].shape[0]):
                 i, j = old_nz[0][idx], old_nz[1][idx]
-                self._model.chgCoeff(cnts[i], grb_vars[j, 0], 0)
+                # if osqp_vars[j, 0] is in cnts[i].osqp_vars, then modify
+                # cnts[i].osqp_vars to set the associated coefficient
+                # to 0
+                if osqp_vars[j, 0] in cnts[i].osqp_vars:
+                    rep_i = np.where(cnts[i].osqp_vars == osqp_vars[j, 0])[0][0]
+                    cnts[i].coeffs[rep_i] = 0.0
 
-            ## then set the non-zero values
             for idx in range(nz[0].shape[0]):
                 i, j = nz[0][idx], nz[1][idx]
-                self._model.chgCoeff(cnts[i], grb_vars[j, 0], A[i, j])
+                # if osqp_vars[j, 0] is in cnts[i].osqp_vars, then modify
+                # cnts[i].osqp_vars to set the associated coefficient
+                # to A[i, j]
+                if osqp_vars[j, 0] in cnts[i].osqp_vars:
+                    rep_i = np.where(cnts[i].osqp_vars == osqp_vars[j, 0])[0][0]
+                    cnts[i].coeffs[rep_i] = A[i, j]
 
             self._osqp_nz[ind] = nz
-            return grb_expr
+
+            for cnt in cnts:
+                self._osqp_lin_cnt_exprs.append(cnt)
+
         else:
             raise NotImplementedError
 
