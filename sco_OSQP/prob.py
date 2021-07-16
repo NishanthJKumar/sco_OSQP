@@ -219,8 +219,10 @@ class Prob(object):
 
         # If the solve succeeded, update all the variables with these new values, then
         # run he callback before returning true
-        self._update_osqp_vars(var_to_index_dict, solve_res.x)
-        self._update_vars()
+        if solve_res.info.status_val == 1:
+            self._update_osqp_vars(var_to_index_dict, solve_res.x)
+            self._update_vars()
+
         self._callback()
 
     def _reset_hinge_cnts(self):
