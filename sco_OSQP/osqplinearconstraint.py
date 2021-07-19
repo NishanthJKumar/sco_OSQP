@@ -14,5 +14,8 @@ class OSQPLinearConstraint(object):
         self.lb = lb
         self.ub = ub
 
+    def __repr__(self):
+        return f"OSQPLinearConstraint with osqp_vars={self._osqp_vars}, coeffs={self.coeffs}, lb = {self.lb}, ub = {self.ub}"
+
     def get_all_vars(self):
         return self.osqp_vars.tolist()

@@ -14,6 +14,10 @@ class OSQPVar(object):
         self._upper_bound = ub
         self.val = val
 
+    def __repr__(self):
+        return f"OSQPVar with name {self.var_name}"
+        # return f"OSQPVar with name {self.var_name}, lb={self._lower_bound}, ub={self._upper_bound}, val={self.val}"
+
     def get_lower_bound(self):
         return self._lower_bound
 

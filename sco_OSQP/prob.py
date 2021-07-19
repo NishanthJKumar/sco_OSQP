@@ -41,10 +41,8 @@ class Prob(object):
         _osqp_lin_cnt_exprs: list of OSQPLinearConstraints that keep track of the linear constraints
             that will be passed to the QP
 
-        _osqp_penalty_cnts: list of Gurobi constraints that are generated when
+        _osqp_penalty_cnts: list of OSQP constraints that are generated when
             adding the hinge and absolute value terms from the penalty terms.
-        _pgm: Positive Gurobi variable manager provides a lazy way of generating
-            positive Gurobi variables so that there are less model updates.
 
         _bexpr_to_osqp_expr: dictionary that caches quadratic bound expressions
             with their corresponding Gurobi expression
@@ -79,7 +77,6 @@ class Prob(object):
         self.hinge_created = False
 
         self._penalty_exprs = []
-        # self._osqp_penalty_cnts = []  # hinge and abs value constraints
 
         ## group-id (str) -> cnt-set (set of constraints)
         self._cnt_groups = defaultdict(set)
@@ -163,7 +160,7 @@ class Prob(object):
         # Construct the q-vector by looping through all the linear objectives
         q_vec = np.zeros(idx)
         for lin_obj in self._osqp_lin_objs:
-            q_vec[var_to_index_dict[lin_obj.osqp_var]] = lin_obj.coeff
+            q_vec[var_to_index_dict[lin_obj.osqp_var]] += lin_obj.coeff
 
         # Next, construct the P-matrix by looping through all quadratic objectives
 
@@ -217,13 +214,16 @@ class Prob(object):
         m.setup(P=P_mat, q=q_vec, A=A_mat, l=l_vec, u=u_vec)
         solve_res = m.solve()
 
+        # If the solve failed, just return False
+        if solve_res.info.status_val not in [1, 2]:
+            return False
+
         # If the solve succeeded, update all the variables with these new values, then
         # run he callback before returning true
-        if solve_res.info.status_val == 1:
-            self._update_osqp_vars(var_to_index_dict, solve_res.x)
-            self._update_vars()
-
+        self._update_osqp_vars(var_to_index_dict, solve_res.x)
+        self._update_vars()
         self._callback()
+        return True
 
     def _reset_hinge_cnts(self):
         ## reset the hinge_cnts
@@ -372,7 +372,7 @@ class Prob(object):
         rows, cols = x.shape
         assert cols == 1
         inds = np.nonzero(Q)
-        coeffs = 2 * Q[inds]  # Need to multiply by 2 because OSQP expects 0.5*x.T*Q*x
+        coeffs = Q[inds]  # No need to multiply by 2 because OSQP expects 0.5*x.T*Q*x
         v1 = x[inds[0], 0]
         v2 = x[inds[1], 0]
         # Create the new QuadraticObj term and append it to the problem's running list of
@@ -387,76 +387,83 @@ class Prob(object):
         for lin_var, lin_coeff in zip(lin_vars.tolist(), lin_coeffs.tolist()):
             self._osqp_lin_objs.append(OSQPLinearObj(lin_var, lin_coeff))
 
+        # from IPython import embed
+
+        # embed()
+
     def find_closest_feasible_point(self):
         """
         Finds the closest point (l2 norm) to the initialization that satisfies
         the linear constraints.
         """
-        # Store a mapping of variables to coefficients within the q vector of the
-        # OSQP problem to be formed
-        var_to_q_arr_val_dict = {}
-        q_arr = np.array([])
+        # # Store a mapping of variables to coefficients within the q vector of the
+        # # OSQP problem to be formed
+        # var_to_q_arr_val_dict = {}
+        # q_arr = np.array([])
 
-        # Loop thru all variables available. For each variable, get the values that
-        # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
-        # values, and the quadratic objective coefficient is 1.
-        # Use this fact to update var_to_index_dict and q_arr
-        for var in self._vars:
-            osqp_vars = var.get_osqp_vars()
-            val = var.get_value()
-            if val is not None:
-                assert osqp_vars.shape == val.shape
-                inds = np.where(~np.isnan(val))
-                val = val[inds]
-                nonnan_osqp_vars = osqp_vars[inds]
-                val_arr = val.flatten()
-                for i, nonnan_osqp_var in enumerate(
-                    nonnan_osqp_vars.flatten().tolist()
-                ):
-                    # We may see the same variable name multiple times!
-                    # We need to account for this possibility with dict.get()
-                    if var_to_q_arr_val_dict.get(nonnan_osqp_var) is not None:
-                        var_to_q_arr_val_dict[nonnan_osqp_var] += -2 * val_arr[i]
-                    else:
-                        var_to_q_arr_val_dict[nonnan_osqp_var] = -2 * val_arr[i]
+        # # Loop thru all variables available. For each variable, get the values that
+        # # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
+        # # values, and the quadratic objective coefficient is 1.
+        # # Use this fact to update var_to_index_dict and q_arr
+        # for var in self._vars:
+        #     osqp_vars = var.get_osqp_vars()
+        #     val = var.get_value()
+        #     if val is not None:
+        #         assert osqp_vars.shape == val.shape
+        #         inds = np.where(~np.isnan(val))
+        #         val = val[inds]
+        #         nonnan_osqp_vars = osqp_vars[inds]
+        #         val_arr = val.flatten()
+        #         for i, nonnan_osqp_var in enumerate(
+        #             nonnan_osqp_vars.flatten().tolist()
+        #         ):
+        #             # We may see the same variable name multiple times!
+        #             # We need to account for this possibility with dict.get()
+        #             if var_to_q_arr_val_dict.get(nonnan_osqp_var) is not None:
+        #                 var_to_q_arr_val_dict[nonnan_osqp_var] += -2 * val_arr[i]
+        #             else:
+        #                 var_to_q_arr_val_dict[nonnan_osqp_var] = -2 * val_arr[i]
 
-        # Now that we've constructed a mapping from each variable to its linear objective value
-        # (q_arr_val), we can construct the final P matrix and q vector needed to define the QP
-        num_vars_in_prob = len(self._osqp_vars)
-        P_mat = np.zeros((num_vars_in_prob, num_vars_in_prob))
-        q_arr = np.zeros(num_vars_in_prob)
-        var_to_osqp_indices_dict = {}
-        for i, var in enumerate(self._osqp_vars):
-            var_to_osqp_indices_dict[var] = i
+        # # Now that we've constructed a mapping from each variable to its linear objective value
+        # # (q_arr_val), we can construct the final P matrix and q vector needed to define the QP
+        # num_vars_in_prob = len(self._osqp_vars)
+        # P_mat = np.zeros((num_vars_in_prob, num_vars_in_prob))
+        # q_arr = np.zeros(num_vars_in_prob)
+        # var_to_osqp_indices_dict = {}
+        # for i, var in enumerate(self._osqp_vars):
+        #     var_to_osqp_indices_dict[var] = i
 
-        for i, var in enumerate(var_to_q_arr_val_dict.keys()):
-            # Set the index corresponding to the variable to 2 in P_mat to offset the
-            # 1/2 constant
-            var_index = var_to_osqp_indices_dict[var]
-            P_mat[var_index, var_index] = 2.0
-            q_arr[var_index] = var_to_q_arr_val_dict[var]
+        # for i, var in enumerate(var_to_q_arr_val_dict.keys()):
+        #     # Set the index corresponding to the variable to 2 in P_mat to offset the
+        #     # 1/2 constant
+        #     var_index = var_to_osqp_indices_dict[var]
+        #     P_mat[var_index, var_index] = 2.0
+        #     q_arr[var_index] = var_to_q_arr_val_dict[var]
 
-        # Solve the QP using OSQP
-        P_mat = scipy.sparse.csc_matrix(P_mat)
-        m = osqp.OSQP()
-        m.setup(P=P_mat, q=q_arr)
+        # # Solve the QP using OSQP
+        # P_mat = scipy.sparse.csc_matrix(P_mat)
+        # m = osqp.OSQP()
+        # m.setup(P=P_mat, q=q_arr)
 
-        solve_res = m.solve()
+        # solve_res = m.solve()
 
-        # If the solve failed, just return False
-        if solve_res.info.status_val != 1:
-            return False
+        # # If the solve failed, just return False
+        # if solve_res.info.status_val not in [1, 2]:
+        #     return False
 
-        # If the solve succeeded, update all the variables with these new values, then
-        # run he callback before returning true
-        self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
-        self._update_vars()
-        self._callback()
-        return True
+        # # If the solve succeeded, update all the variables with these new values, then
+        # # run he callback before returning true
+        # self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
+        # self._update_vars()
+        # self._callback()
+        # return True
+
+        return self.optimize()
 
     def update_obj(self, penalty_coeff=0.0):
         self._reset_osqp_objs()
         self._lazy_spawn_osqp_cnts()
+
         for bound_expr in self._quad_obj_exprs + self._approx_obj_exprs:
             self._add_osqp_objs_and_cnts_from_expr(bound_expr)
 
@@ -480,6 +487,8 @@ class Prob(object):
             self._osqp_nz = []
             for bound_expr in self._penalty_exprs:
                 self._osqp_nz.append(np.nonzero(bound_expr.expr.expr.A))
+                # The below line populates self._osqp_penalty_exprs and
+                # self._osqp_penalty_cnts
                 self._add_osqp_objs_and_cnts_from_expr(bound_expr)
             self.hinge_created = True
 
@@ -669,6 +678,7 @@ class Prob(object):
         """
         for osqp_var in var_to_osqp_indices_dict.keys():
             osqp_var.val = solver_values[var_to_osqp_indices_dict[osqp_var]]
+            # print(f"{osqp_var}, {osqp_var.val}")
 
     def _update_vars(self):
         for var in self._vars:

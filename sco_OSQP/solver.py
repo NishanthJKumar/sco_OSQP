@@ -100,7 +100,7 @@ class Solver(object):
                 if verbose:
                     print(("    trust region size: {0}".format(trust_region_size)))
                 prob.add_trust_region(trust_region_size)
-                prob.optimize()
+                _ = prob.optimize()
                 model_merit = prob.get_approx_value(penalty_coeff)
                 model_merit_vec = prob.get_approx_value(penalty_coeff, True)
                 new_merit = prob.get_value(penalty_coeff)
