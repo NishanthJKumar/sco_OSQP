@@ -214,6 +214,14 @@ class Prob(object):
         m.setup(P=P_mat, q=q_vec, A=A_mat, l=l_vec, u=u_vec)
         solve_res = m.solve()
 
+        ### DEBUGGING!
+
+        # import pdb
+
+        # pdb.set_trace()
+
+        ### END DEBUGGING
+
         # If the solve failed, just return False
         if solve_res.info.status_val not in [1, 2]:
             return False
@@ -458,6 +466,45 @@ class Prob(object):
         # self._callback()
         # return True
 
+        # Loop thru all variables available. For each variable, get the values that
+        # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
+        # values, and the quadratic objective coefficient is 1.
+        # Use this fact to update var_to_index_dict and q_arr
+        for var in self._vars:
+            osqp_vars = var.get_osqp_vars()
+            val = var.get_value()
+            if val is not None:
+                assert osqp_vars.shape == val.shape
+                inds = np.where(~np.isnan(val))
+                val = val[inds]
+                nonnan_osqp_vars = osqp_vars[inds]
+                val_arr = val.flatten()
+                for i, nonnan_osqp_var in enumerate(
+                    nonnan_osqp_vars.flatten().tolist()
+                ):
+                    # Create the correct quad and lin objectives!
+                    self._osqp_lin_objs.append(
+                        OSQPLinearObj(nonnan_osqp_var, -2.0 * val_arr[i])
+                    )
+
+                    # # DEBUGGING!
+                    # if nonnan_osqp_var.var_name == "(can1-pose-(0, 2))":
+                    #     import pdb
+
+                    # pdb.set_trace()
+
+                    self._osqp_quad_objs.append(
+                        OSQPQuadraticObj(
+                            np.array([nonnan_osqp_var]),
+                            np.array([nonnan_osqp_var]),
+                            np.array([2.0]),
+                        )
+                    )
+
+        # import pdb
+
+        # pdb.set_trace()
+
         return self.optimize()
 
     def update_obj(self, penalty_coeff=0.0):
@@ -510,7 +557,6 @@ class Prob(object):
         """Updates all non-linear constraints and adds to new (approximated) linear
         constraints to _osqp_lin_cnt_exprs"""
 
-        # TODO: Port this to OSQP
         expr, var = bexpr.expr, bexpr.var
         if isinstance(expr, HingeExpr) or isinstance(expr, AbsExpr):
             aff_expr = expr.expr
@@ -678,7 +724,7 @@ class Prob(object):
         """
         for osqp_var in var_to_osqp_indices_dict.keys():
             osqp_var.val = solver_values[var_to_osqp_indices_dict[osqp_var]]
-            # print(f"{osqp_var}, {osqp_var.val}")
+            print(f"{osqp_var}, {osqp_var.val}")
 
     def _update_vars(self):
         for var in self._vars:
