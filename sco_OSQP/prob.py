@@ -168,12 +168,11 @@ class Prob(object):
         P_mat = np.zeros((num_osqp_vars, num_osqp_vars))
         for quad_obj in self._osqp_quad_objs:
             for i in range(quad_obj.coeffs.shape[0]):
-                var1_index = var_to_index_dict[quad_obj.osqp_vars1[i]]
-                var2_index = var_to_index_dict[quad_obj.osqp_vars2[i]]
-                # To ensure P_mat is upper-triangular, we need to sort these indices in
-                # ascending order.
-                idx1, idx2 = sorted((var1_index, var2_index))
+                idx2 = var_to_index_dict[quad_obj.osqp_vars1[i]]
+                idx1 = var_to_index_dict[quad_obj.osqp_vars2[i]]
                 P_mat[idx1, idx2] += quad_obj.coeffs[i]
+                if idx1 != idx2:
+                    P_mat[idx2, idx1] += quad_obj.coeffs[i]
 
         # Next, setup the A-matrix and l and u vectors
         num_var_constraints = sum(
@@ -208,19 +207,22 @@ class Prob(object):
                 row_num += 1
 
         # Finally, construct the matrices and call the OSQP Solver!
-        P_mat = scipy.sparse.csc_matrix(P_mat)
-        A_mat = scipy.sparse.csc_matrix(A_mat)
+        P_mat_sparse = scipy.sparse.csc_matrix(P_mat)
+        A_mat_sparse = scipy.sparse.csc_matrix(A_mat)
         m = osqp.OSQP()
-        m.setup(P=P_mat, q=q_vec, A=A_mat, l=l_vec, u=u_vec)
+        m.setup(
+            P=P_mat_sparse,
+            q=q_vec,
+            A=A_mat_sparse,
+            sigma=1e-08,
+            l=l_vec,
+            u=u_vec,
+            eps_rel=1e-05,
+            polish=True,
+            adaptive_rho=False,
+            warm_start=False,
+        )
         solve_res = m.solve()
-
-        ### DEBUGGING!
-
-        # import pdb
-
-        # pdb.set_trace()
-
-        ### END DEBUGGING
 
         # If the solve failed, just return False
         if solve_res.info.status_val not in [1, 2]:
@@ -395,81 +397,11 @@ class Prob(object):
         for lin_var, lin_coeff in zip(lin_vars.tolist(), lin_coeffs.tolist()):
             self._osqp_lin_objs.append(OSQPLinearObj(lin_var, lin_coeff))
 
-        # from IPython import embed
-
-        # embed()
-
     def find_closest_feasible_point(self):
         """
         Finds the closest point (l2 norm) to the initialization that satisfies
         the linear constraints.
         """
-        # # Store a mapping of variables to coefficients within the q vector of the
-        # # OSQP problem to be formed
-        # var_to_q_arr_val_dict = {}
-        # q_arr = np.array([])
-
-        # # Loop thru all variables available. For each variable, get the values that
-        # # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
-        # # values, and the quadratic objective coefficient is 1.
-        # # Use this fact to update var_to_index_dict and q_arr
-        # for var in self._vars:
-        #     osqp_vars = var.get_osqp_vars()
-        #     val = var.get_value()
-        #     if val is not None:
-        #         assert osqp_vars.shape == val.shape
-        #         inds = np.where(~np.isnan(val))
-        #         val = val[inds]
-        #         nonnan_osqp_vars = osqp_vars[inds]
-        #         val_arr = val.flatten()
-        #         for i, nonnan_osqp_var in enumerate(
-        #             nonnan_osqp_vars.flatten().tolist()
-        #         ):
-        #             # We may see the same variable name multiple times!
-        #             # We need to account for this possibility with dict.get()
-        #             if var_to_q_arr_val_dict.get(nonnan_osqp_var) is not None:
-        #                 var_to_q_arr_val_dict[nonnan_osqp_var] += -2 * val_arr[i]
-        #             else:
-        #                 var_to_q_arr_val_dict[nonnan_osqp_var] = -2 * val_arr[i]
-
-        # # Now that we've constructed a mapping from each variable to its linear objective value
-        # # (q_arr_val), we can construct the final P matrix and q vector needed to define the QP
-        # num_vars_in_prob = len(self._osqp_vars)
-        # P_mat = np.zeros((num_vars_in_prob, num_vars_in_prob))
-        # q_arr = np.zeros(num_vars_in_prob)
-        # var_to_osqp_indices_dict = {}
-        # for i, var in enumerate(self._osqp_vars):
-        #     var_to_osqp_indices_dict[var] = i
-
-        # for i, var in enumerate(var_to_q_arr_val_dict.keys()):
-        #     # Set the index corresponding to the variable to 2 in P_mat to offset the
-        #     # 1/2 constant
-        #     var_index = var_to_osqp_indices_dict[var]
-        #     P_mat[var_index, var_index] = 2.0
-        #     q_arr[var_index] = var_to_q_arr_val_dict[var]
-
-        # # Solve the QP using OSQP
-        # P_mat = scipy.sparse.csc_matrix(P_mat)
-        # m = osqp.OSQP()
-        # m.setup(P=P_mat, q=q_arr)
-
-        # solve_res = m.solve()
-
-        # # If the solve failed, just return False
-        # if solve_res.info.status_val not in [1, 2]:
-        #     return False
-
-        # # If the solve succeeded, update all the variables with these new values, then
-        # # run he callback before returning true
-        # self._update_osqp_vars(var_to_osqp_indices_dict, solve_res.x)
-        # self._update_vars()
-        # self._callback()
-        # return True
-
-        # Loop thru all variables available. For each variable, get the values that
-        # are not nan. The linear objective coefficients are simply -2 * val, for each val in these
-        # values, and the quadratic objective coefficient is 1.
-        # Use this fact to update var_to_index_dict and q_arr
         for var in self._vars:
             osqp_vars = var.get_osqp_vars()
             val = var.get_value()
@@ -487,12 +419,6 @@ class Prob(object):
                         OSQPLinearObj(nonnan_osqp_var, -2.0 * val_arr[i])
                     )
 
-                    # # DEBUGGING!
-                    # if nonnan_osqp_var.var_name == "(can1-pose-(0, 2))":
-                    #     import pdb
-
-                    # pdb.set_trace()
-
                     self._osqp_quad_objs.append(
                         OSQPQuadraticObj(
                             np.array([nonnan_osqp_var]),
@@ -500,10 +426,6 @@ class Prob(object):
                             np.array([2.0]),
                         )
                     )
-
-        # import pdb
-
-        # pdb.set_trace()
 
         return self.optimize()
 

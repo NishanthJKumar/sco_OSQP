@@ -16,5 +16,8 @@ class OSQPQuadraticObj(object):
         self.osqp_vars2 = osqp_vars2
         self.coeffs = coeffs
 
+    def __repr__(self):
+        return f"Quadratic Objective with osqp_vars1={self.osqp_vars1}, osqp_vars2={self.osqp_vars2}, coeffs={self.coeffs}"
+
     def get_all_vars(self):
         return self.osqp_vars1.tolist() + self.osqp_vars2.tolist()
