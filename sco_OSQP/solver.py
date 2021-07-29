@@ -181,7 +181,7 @@ class Solver(object):
                     if verbose:
                         print("Converged: y tolerance")
                     prob.restore()
-                    ## store the failed groups into the prob
+                    # store the failed groups into the prob
 
                     for i, g in enumerate(sorted(prob._cnt_groups.keys())):
                         if violated[i] and self._y_converged(approx_improve_vec[i]):

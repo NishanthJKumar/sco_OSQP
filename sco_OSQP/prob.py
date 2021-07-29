@@ -4,12 +4,11 @@ import numpy as np
 import osqp
 import scipy
 
+import sco_OSQP.expr as sco_osqp_expr
 from sco_OSQP.osqplinearconstraint import OSQPLinearConstraint
 from sco_OSQP.osqplinearobj import OSQPLinearObj
 from sco_OSQP.osqpquadraticobj import OSQPQuadraticObj
 from sco_OSQP.osqpvar import OSQPVar
-
-from .expr import *
 
 
 class Prob(object):
@@ -94,7 +93,9 @@ class Prob(object):
         added to var.
         """
         expr = bound_expr.expr
-        if isinstance(expr, AffExpr) or isinstance(expr, QuadExpr):
+        if isinstance(expr, sco_osqp_expr.AffExpr) or isinstance(
+            expr, sco_osqp_expr.QuadExpr
+        ):
             self._quad_obj_exprs.append(bound_expr)
         else:
             self._nonquad_obj_exprs.append(bound_expr)
@@ -119,11 +120,11 @@ class Prob(object):
         comp_expr = bound_expr.expr
         expr = comp_expr.expr
         var = bound_expr.var
-        assert isinstance(comp_expr, CompExpr)
-        if isinstance(expr, AffExpr):
-            if isinstance(comp_expr, EqExpr):
+        assert isinstance(comp_expr, sco_osqp_expr.CompExpr)
+        if isinstance(expr, sco_osqp_expr.AffExpr):
+            if isinstance(comp_expr, sco_osqp_expr.EqExpr):
                 self._add_osqp_cnt_from_aff_expr(expr, var, "eq", comp_expr.val)
-            elif isinstance(comp_expr, LEqExpr):
+            elif isinstance(comp_expr, sco_osqp_expr.LEqExpr):
                 self._add_osqp_cnt_from_aff_expr(expr, var, "leq", comp_expr.val)
         else:
             self._nonlin_cnt_exprs.append(bound_expr)
@@ -235,7 +236,7 @@ class Prob(object):
         return True
 
     def _reset_hinge_cnts(self):
-        ## reset the hinge_cnts
+        # reset the hinge_cnts
         self.hinge_created = False
 
     def _add_osqp_objs_and_cnts_from_expr(self, bound_expr):
@@ -247,15 +248,15 @@ class Prob(object):
         expr = bound_expr.expr
         var = bound_expr.var
 
-        if isinstance(expr, AffExpr):
+        if isinstance(expr, sco_osqp_expr.AffExpr):
             self._add_to_lin_objs_and_cnts_from_aff_expr(expr, var)
-        elif isinstance(expr, QuadExpr):
+        elif isinstance(expr, sco_osqp_expr.QuadExpr):
             self._add_to_quad_and_lin_objs_from_quad_expr(expr, var)
-        elif isinstance(expr, HingeExpr):
+        elif isinstance(expr, sco_osqp_expr.HingeExpr):
             self._add_to_lin_objs_and_cnts_from_hinge_expr(expr, var)
-        elif isinstance(expr, AbsExpr):
+        elif isinstance(expr, sco_osqp_expr.AbsExpr):
             self._add_to_lin_objs_and_cnts_from_abs_expr(expr, var)
-        elif isinstance(expr, CompExpr):
+        elif isinstance(expr, sco_osqp_expr.CompExpr):
             raise Exception(
                 "Comparison Expressions cannot be converted to \
                 OSQP problem objectives; use _add_osqp_cnt_from_aff_expr \
@@ -267,23 +268,22 @@ class Prob(object):
                 an OSQP objective."
             )
 
-    def _add_to_lin_objs_and_cnts_from_aff_expr(self, expr, var):
+    def _add_to_lin_objs_and_cnts_from_aff_expr(self, aff_expr, var):
         # NOTE: There don't seem to be any constraints added by an affine
         # expression
         osqp_vars = var.get_osqp_vars()
         A_mat = aff_expr.A
-        b_vec = aff_expr.b
 
         for i in range(A_mat.shape[0]):
-            (inds,) = np.nonzero(A[i, :])
+            (inds,) = np.nonzero(A_mat[i, :])
             for coeff, osqp_var in zip(
-                A[i, inds].tolist(), osqp_vars[inds, 0].tolist()
+                A_mat[i, inds].tolist(), osqp_vars[inds, 0].tolist()
             ):
                 self._osqp_penalty_exprs.append(OSQPLinearObj(osqp_var, coeff))
 
     def _add_to_lin_objs_and_cnts_from_hinge_expr(self, hinge_expr, var):
         aff_expr = hinge_expr.expr
-        assert isinstance(aff_expr, AffExpr)
+        assert isinstance(aff_expr, sco_osqp_expr.AffExpr)
         osqp_vars = var.get_osqp_vars()
         A_mat = aff_expr.A
         b_vec = aff_expr.b
@@ -310,9 +310,11 @@ class Prob(object):
 
         self._osqp_penalty_cnts.append(cnts_list)
 
-    def _add_to_lin_objs_and_cnts_from_abs_expr(self, expr, var):
+    def _add_to_lin_objs_and_cnts_from_abs_expr(self, abs_expr, var):
         aff_expr = abs_expr.expr
-        assert isinstance(aff_expr, AffExpr)
+        assert isinstance(aff_expr, sco_osqp_expr.AffExpr)
+        A_mat = aff_expr.A
+        b_vec = aff_expr.b
         pos = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
         neg = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
 
@@ -357,12 +359,12 @@ class Prob(object):
             (inds,) = np.nonzero(A_mat[i, :])
             # If the constraint to be added is an equality constraint,
             # compute the upper and lower bounds
-            if cnt_type is "eq":
+            if cnt_type == "eq":
                 # the upper and lower bounds must be equal, and they must be
                 # whatever the cnt_val was minus the constant term
                 curr_lb = cnt_val[i] - b_vec[i]
                 curr_ub = cnt_val[i] - b_vec[i]
-            elif cnt_type is "leq":
+            elif cnt_type == "leq":
                 # only the upper bound needs to be set; the lower bound is negative
                 # infinity
                 curr_lb = -np.inf
@@ -479,9 +481,11 @@ class Prob(object):
         constraints to _osqp_lin_cnt_exprs"""
 
         expr, var = bexpr.expr, bexpr.var
-        if isinstance(expr, HingeExpr) or isinstance(expr, AbsExpr):
+        if isinstance(expr, sco_osqp_expr.HingeExpr) or isinstance(
+            expr, sco_osqp_expr.AbsExpr
+        ):
             aff_expr = expr.expr
-            assert isinstance(aff_expr, AffExpr)
+            assert isinstance(aff_expr, sco_osqp_expr.AffExpr)
             A, b = aff_expr.A, aff_expr.b
             cnts = self._osqp_penalty_cnts[ind]
             old_nz = self._osqp_nz[ind]
@@ -592,9 +596,9 @@ class Prob(object):
     def _compute_cnt_violation(self, bexpr):
         comp_expr = bexpr.expr
         var_val = bexpr.var.get_value()
-        if isinstance(comp_expr, EqExpr):
+        if isinstance(comp_expr, sco_osqp_expr.EqExpr):
             return np.absolute(comp_expr.expr.eval(var_val) - comp_expr.val)
-        elif isinstance(comp_expr, LEqExpr):
+        elif isinstance(comp_expr, sco_osqp_expr.LEqExpr):
             v = comp_expr.expr.eval(var_val) - comp_expr.val
             zeros = np.zeros(v.shape)
             return np.maximum(v, zeros)

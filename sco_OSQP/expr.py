@@ -384,7 +384,7 @@ class LExpr(CompExpr):
         assert tol >= 0.0
         expr_val = self.expr.eval(x)
         if negated:
-            ## need the tolerance to go the other way if its negated
+            # need the tolerance to go the other way if its negated
             return not np.all(expr_val < self.val - tol * np.ones(expr_val.shape))
         else:
             return np.all(expr_val < self.val + tol * np.ones(expr_val.shape))
