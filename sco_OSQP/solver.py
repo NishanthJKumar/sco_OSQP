@@ -1,8 +1,6 @@
 import time
 
 import numpy as np
-import osqp
-from ipdb import set_trace as st
 
 
 class Solver(object):
@@ -39,7 +37,7 @@ class Solver(object):
             self.min_approx_improve = tol
             self.cnt_tolerance = tol
 
-        if method is "penalty_sqp":
+        if method == "penalty_sqp":
             return self._penalty_sqp(prob, verbose=verbose)
         else:
             raise Exception("This method is not supported.")
@@ -109,8 +107,8 @@ class Solver(object):
                 # if not approx_merit_improve:
                 #    approx_merit_improve += 1e-10
 
-                ## we converge if one of the violated constraint groups
-                ## is below the minimum improvement
+                # we converge if one of the violated constraint groups
+                # is below the minimum improvement
                 approx_improve_vec = merit_vec - model_merit_vec
                 violated = merit_vec > self.cnt_tolerance
                 if approx_improve_vec.shape == (0,):
@@ -159,9 +157,9 @@ class Solver(object):
                     prob.restore()
                     return True
 
-                ## we converge if one of the violated constraint groups
-                ## is below the minimum improvement and none of its overlapping
-                ## groups are making progress
+                # we converge if one of the violated constraint groups
+                # is below the minimum improvement and none of its overlapping
+                # groups are making progress
                 prob.nonconverged_groups = []
                 for gid, idx in prob.gid2ind.items():
                     if (

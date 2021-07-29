@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class OSQPLinearConstraint(object):
     def __init__(self, osqp_vars, coeffs, lb, ub):
         """

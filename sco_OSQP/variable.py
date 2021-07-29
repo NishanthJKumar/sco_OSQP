@@ -1,7 +1,5 @@
 import numpy as np
 
-from sco_OSQP.osqpvar import OSQPVar
-
 
 class Variable(object):
     """

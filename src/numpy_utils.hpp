@@ -3,7 +3,7 @@
 #include <vector>
 namespace py = boost::python;
 
-py::object np_mod; 
+py::object np_mod;
 
 py::list toPyList(const std::vector<int>& x) {
   py::list out;

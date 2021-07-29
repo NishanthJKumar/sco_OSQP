@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class OSQPQuadraticObj(object):
     def __init__(self, osqp_vars1, osqp_vars2, coeffs):
         """

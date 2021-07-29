@@ -1,4 +1,3 @@
-import time
 from collections import defaultdict
 
 import numpy as np
@@ -78,7 +77,7 @@ class Prob(object):
 
         self._penalty_exprs = []
 
-        ## group-id (str) -> cnt-set (set of constraints)
+        # group-id (str) -> cnt-set (set of constraints)
         self._cnt_groups = defaultdict(set)
         self._cnt_groups_overlap = defaultdict(set)
         self._penalty_groups = []

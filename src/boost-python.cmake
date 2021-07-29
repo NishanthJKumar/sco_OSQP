@@ -29,7 +29,7 @@ function(boost_python_module NAME)
   elseif( APPLE OR ${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     # on mac osx, python cannot import libraries with .dylib extension
     set_target_properties(${NAME} PROPERTIES SUFFIX ".so")
-  endif()  
+  endif()
   target_link_libraries(${NAME}
     ${DEP_LIBS}
     )

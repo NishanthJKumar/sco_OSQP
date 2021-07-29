@@ -1,6 +1,5 @@
 import numdifftools as nd
 import numpy as np
-from ipdb import set_trace as st
 from scipy.linalg import eigvalsh
 
 DEFAULT_TOL = 1e-4
@@ -346,7 +345,7 @@ class LEqExpr(CompExpr):
         assert tol >= 0.0
         expr_val = self.expr.eval(x)
         if negated:
-            ## need the tolerance to go the other way if its negated
+            # need the tolerance to go the other way if its negated
             return not np.all(expr_val <= self.val - tol * np.ones(expr_val.shape))
         else:
             return np.all(expr_val <= self.val + tol * np.ones(expr_val.shape))
