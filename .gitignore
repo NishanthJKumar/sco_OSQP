@@ -2,7 +2,7 @@
 .vscode
 
 # Ruby version file added by vscode
-.ruby-version
+*.ruby-version
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
