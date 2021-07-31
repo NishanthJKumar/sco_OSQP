@@ -1,3 +1,4 @@
+# fmt: off
 from collections import defaultdict
 
 import numpy as np
@@ -5,10 +6,11 @@ import osqp
 import scipy
 
 import sco_OSQP.expr as sco_osqp_expr
-from sco_OSQP.osqplinearconstraint import OSQPLinearConstraint
-from sco_OSQP.osqplinearobj import OSQPLinearObj
-from sco_OSQP.osqpquadraticobj import OSQPQuadraticObj
-from sco_OSQP.osqpvar import OSQPVar
+import sco_OSQP.osqp_utils as osqp_utils
+from sco_OSQP.osqp_utils import (OSQPLinearConstraint, OSQPLinearObj,
+                                 OSQPQuadraticObj, OSQPVar)
+
+# fmt: on
 
 
 class Prob(object):
@@ -146,83 +148,13 @@ class Prob(object):
         Calls the OSQP optimizer on the current QP approximation with a given
         penalty coefficient.
         """
-        # First, we need to setup the problem as described here: https://osqp.org/docs/solver/index.html
-        # Specifically, we need to start by constructing the x vector that contains all the
-        # OSQPVars that are part of the QP. This will take the form of a mapping from OSQPVar to
-        # index within the x vector.
-        var_to_index_dict = {}
-        idx = 0
-        for osqp_var in self._osqp_vars:
-            var_to_index_dict[osqp_var] = idx
-            idx += 1
-        num_osqp_vars = len(self._osqp_vars)
-
-        # Construct the q-vector by looping through all the linear objectives
-        q_vec = np.zeros(idx)
-        for lin_obj in self._osqp_lin_objs:
-            q_vec[var_to_index_dict[lin_obj.osqp_var]] += lin_obj.coeff
-
-        # Next, construct the P-matrix by looping through all quadratic objectives
-
-        # Since P must be upper-triangular, the shape must be (num_osqp_vars, num_osqp_vars)
-        P_mat = np.zeros((num_osqp_vars, num_osqp_vars))
-        for quad_obj in self._osqp_quad_objs:
-            for i in range(quad_obj.coeffs.shape[0]):
-                idx2 = var_to_index_dict[quad_obj.osqp_vars1[i]]
-                idx1 = var_to_index_dict[quad_obj.osqp_vars2[i]]
-                P_mat[idx1, idx2] += quad_obj.coeffs[i]
-                if idx1 != idx2:
-                    P_mat[idx2, idx1] += quad_obj.coeffs[i]
-
-        # Next, setup the A-matrix and l and u vectors
-        num_var_constraints = sum(
-            osqp_vars.shape[0]
-            for var in self._vars
-            for osqp_vars in var.get_osqp_vars()
+        solve_res, var_to_index_dict = osqp_utils.optimize(
+            self._osqp_vars,
+            self._vars,
+            self._osqp_quad_objs,
+            self._osqp_lin_objs,
+            self._osqp_lin_cnt_exprs,
         )
-        A_mat = np.zeros(
-            (num_var_constraints + len(self._osqp_lin_cnt_exprs), num_osqp_vars)
-        )
-        l_vec = np.zeros(num_var_constraints + len(self._osqp_lin_cnt_exprs))
-        u_vec = np.zeros(num_var_constraints + len(self._osqp_lin_cnt_exprs))
-        # First add all the linear constraints
-        row_num = 0
-        for lin_constraint in self._osqp_lin_cnt_exprs:
-            l_vec[row_num] = lin_constraint.lb
-            u_vec[row_num] = lin_constraint.ub
-            for i in range(lin_constraint.coeffs.shape[0]):
-                A_mat[
-                    row_num, var_to_index_dict[lin_constraint.osqp_vars[i]]
-                ] = lin_constraint.coeffs[i]
-            row_num += 1
-
-        # Then, add the trust regions for every variable as constraints
-        # for var in self._vars:
-        for var in self._vars:
-            osqp_vars = var.get_osqp_vars()
-            for osqp_var_i in range(osqp_vars.shape[0]):
-                A_mat[row_num, var_to_index_dict[osqp_vars[osqp_var_i, 0]]] = 1.0
-                l_vec[row_num] = osqp_vars[osqp_var_i, 0].get_lower_bound()
-                u_vec[row_num] = osqp_vars[osqp_var_i, 0].get_upper_bound()
-                row_num += 1
-
-        # Finally, construct the matrices and call the OSQP Solver!
-        P_mat_sparse = scipy.sparse.csc_matrix(P_mat)
-        A_mat_sparse = scipy.sparse.csc_matrix(A_mat)
-        m = osqp.OSQP()
-        m.setup(
-            P=P_mat_sparse,
-            q=q_vec,
-            A=A_mat_sparse,
-            sigma=1e-08,
-            l=l_vec,
-            u=u_vec,
-            eps_rel=1e-05,
-            polish=True,
-            adaptive_rho=False,
-            warm_start=False,
-        )
-        solve_res = m.solve()
 
         # If the solve failed, just return False
         if solve_res.info.status_val not in [1, 2]:
@@ -230,7 +162,7 @@ class Prob(object):
 
         # If the solve succeeded, update all the variables with these new values, then
         # run he callback before returning true
-        self._update_osqp_vars(var_to_index_dict, solve_res.x)
+        osqp_utils.update_osqp_vars(var_to_index_dict, solve_res.x)
         self._update_vars()
         self._callback()
         return True
@@ -642,14 +574,6 @@ class Prob(object):
             value += penalty_coeff * np.sum(bound_expr.eval())
 
         return value
-
-    def _update_osqp_vars(self, var_to_osqp_indices_dict, solver_values):
-        """
-        Updates the variables values based on the OSQP solution
-        """
-        for osqp_var in var_to_osqp_indices_dict.keys():
-            osqp_var.val = solver_values[var_to_osqp_indices_dict[osqp_var]]
-            print(f"{osqp_var}, {osqp_var.val}")
 
     def _update_vars(self):
         for var in self._vars:

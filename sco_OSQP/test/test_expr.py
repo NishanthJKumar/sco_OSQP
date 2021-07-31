@@ -152,9 +152,6 @@ class TestExpr(unittest.TestCase):
         for f, fder, _ in fs:
             e = Expr(f)
             for x in xs:
-                y = f(x)
-                y_prime = fder(x)
-
                 aff_e = e.convexify(x, degree=1)
                 self.assertIsInstance(aff_e, AffExpr)
                 A = aff_e.A
@@ -207,7 +204,6 @@ class TestExpr(unittest.TestCase):
 
     def test_convexify_deg_2_negative_hessian(self):
         f = lambda x: -(x ** 2)
-        f_hess = np.array([[-2.0]])
         e = Expr(f)
         quad_e = e.convexify(np.zeros((1, 1)), degree=2)
         self.assertIsInstance(quad_e, QuadExpr)
@@ -258,8 +254,6 @@ class TestAbsExpr(unittest.TestCase):
             A = np.random.rand(d, d) - 0.5 * np.ones((d, d))
             b = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
             x = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
-            y = A.dot(x) + b
-            y_prime = A.T
             e = AffExpr(A, b)
             abs_e = AbsExpr(e)
             self.assertTrue(np.allclose(np.absolute(e.eval(x)), abs_e.eval(x)))
@@ -271,8 +265,6 @@ class TestHingeExpr(unittest.TestCase):
             A = np.random.rand(d, d) - 0.5 * np.ones((d, d))
             b = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
             x = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
-            y = A.dot(x) + b
-            y_prime = A.T
             e = AffExpr(A, b)
             hinge_e = HingeExpr(e)
             zeros = np.zeros((1, 1))
@@ -306,8 +298,6 @@ class TestEqExpr(unittest.TestCase):
             A = np.random.rand(d, d) - 0.5 * np.ones((d, d))
             b = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
             x = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
-            y = A.dot(x) + b
-            y_prime = A.T
             e = AffExpr(A, b)
 
             val = e.eval(x)
@@ -325,7 +315,6 @@ class TestEqExpr(unittest.TestCase):
             e = Expr(f)
             for x in xs:
                 y = f(x)
-                y_prime = fder(x)
 
                 eq_e = EqExpr(e, np.array([1.0]))
                 abs_e = eq_e.convexify(x)
@@ -348,8 +337,6 @@ class TestLEqExpr(unittest.TestCase):
             A = np.random.rand(d, d) - 0.5 * np.ones((d, d))
             b = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
             x = np.random.rand(d, 1) - 0.5 * np.ones((d, 1))
-            y = A.dot(x) + b
-            y_prime = A.T
             e = AffExpr(A, b)
 
             val = e.eval(x)
@@ -372,7 +359,6 @@ class TestLEqExpr(unittest.TestCase):
             e = Expr(f)
             for x in xs:
                 y = f(x)
-                y_prime = fder(x)
 
                 leq_e = LEqExpr(e, np.array([1.0]))
                 hinge_e = leq_e.convexify(x)
@@ -406,8 +392,6 @@ class TestBoundExpr(unittest.TestCase):
         for f, fder, _ in fs:
             e = Expr(f)
             for x in xs:
-                y = f(x)
-
                 dummy_grb_vars = np.array([[1]])
                 v = Variable(dummy_grb_vars, x)
 
