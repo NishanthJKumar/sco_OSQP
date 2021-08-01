@@ -1,11 +1,15 @@
+# fmt: off
 import unittest
 
 import numpy as np
 
 from sco_OSQP.expr import *
-from sco_OSQP.osqp_utils import OSQPLinearObj, OSQPQuadraticObj, OSQPVar
+from sco_OSQP.osqp_utils import (OSQPLinearConstraint, OSQPLinearObj,
+                                 OSQPQuadraticObj, OSQPVar)
 from sco_OSQP.prob import Prob
 from sco_OSQP.variable import Variable
+
+# fmt: on
 
 f = lambda x: np.array([[x]])
 
@@ -180,282 +184,283 @@ class TestProb(unittest.TestCase):
         prob.optimize()
         self.assertTrue(np.allclose(var.get_value(), np.array([[2]])))
 
-    # NOTE: OSQP returning a very different value here!!!
-    # def test_add_cnt_leq_aff(self):
-    #     quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
+    def test_add_cnt_leq_aff(self):
+        quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
 
-    #     aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-    #     comp = LEqExpr(aff, np.array([[-4]]))
-    #     prob = Prob()
-    #     osqp_var = OSQPVar("x")
-    #     prob.add_osqp_var(osqp_var)
-    #     osqp_vars = np.array([[osqp_var]])
-    #     var = Variable(osqp_vars)
-    #     prob.add_var(var)
+        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        comp = LEqExpr(aff, np.array([[-4]]))
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-    #     bexpr_quad = BoundExpr(quad, var)
-    #     prob.add_obj_expr(bexpr_quad)
+        bexpr_quad = BoundExpr(quad, var)
+        prob.add_obj_expr(bexpr_quad)
 
-    #     bexpr = BoundExpr(comp, var)
-    #     prob.add_cnt_expr(bexpr)
+        bexpr = BoundExpr(comp, var)
+        prob.add_cnt_expr(bexpr)
 
-    #     prob.optimize()
+        prob.optimize()
 
-    #     from IPython import embed
+        self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
-    #     embed()
-    #     self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
+        # NOTE: below two tests are hard because my function for hinge_exprs doesn't return anything...
+        # def test_hinge_expr_to_grb_expr1(self):
+        #     """
+        #     min max(0, x+1) st. x == -4
+        #     """
+        #     aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        #     hinge = HingeExpr(aff)
+        #     prob = Prob(model)
 
-    # NOTE: below two tests are hard because my function for hinge_exprs doesn't return anything...
-    # def test_hinge_expr_to_grb_expr1(self):
-    #     """
-    #     min max(0, x+1) st. x == -4
-    #     """
-    #     aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-    #     hinge = HingeExpr(aff)
-    #     prob = Prob(model)
+        #     prob = Prob()
+        #     osqp_var = OSQPVar("x")
+        #     prob.add_osqp_var(osqp_var)
+        #     osqp_vars = np.array([[osqp_var]])
+        #     var = Variable(osqp_vars)
+        #     prob.add_var(var)
 
-    #     prob = Prob()
-    #     osqp_var = OSQPVar("x")
-    #     prob.add_osqp_var(osqp_var)
-    #     osqp_vars = np.array([[osqp_var]])
-    #     var = Variable(osqp_vars)
-    #     prob.add_var(var)
+        #     hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
+        #     obj = hinge_grb_expr[0, 0]
+        #     model.setObjective(obj)
 
-    #     hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
-    #     obj = hinge_grb_expr[0, 0]
-    #     model.setObjective(obj)
+        #     aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        #     comp = EqExpr(aff, np.array([[-4]]))
+        #     bound_expr = BoundExpr(comp, var)
+        #     prob.add_cnt_expr(bound_expr)
 
-    #     aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-    #     comp = EqExpr(aff, np.array([[-4]]))
-    #     bound_expr = BoundExpr(comp, var)
-    #     prob.add_cnt_expr(bound_expr)
+        #     model.optimize()
+        #     var.update()
+        #     self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
+        #     self.assertTrue(np.allclose(obj.X, 0.0))
 
-    #     model.optimize()
-    #     var.update()
-    #     self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
-    #     self.assertTrue(np.allclose(obj.X, 0.0))
+        #     def test_hinge_expr_to_grb_expr2(self):
+        #         """
+        #         min max(0, x+1) st. x == 1
+        #         """
+        #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        #         hinge = HingeExpr(aff)
+        #         model = grb.Model()
+        #         prob = Prob(model)
 
-    #     def test_hinge_expr_to_grb_expr2(self):
-    #         """
-    #         min max(0, x+1) st. x == 1
-    #         """
-    #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-    #         hinge = HingeExpr(aff)
-    #         model = grb.Model()
-    #         prob = Prob(model)
+        #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
+        #         grb_vars = np.array([[grb_var]])
+        #         var = Variable(grb_vars)
+        #         model.update()
 
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars)
-    #         model.update()
+        #         hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
+        #         model.update()
+        #         obj = hinge_grb_expr[0, 0]
+        #         model.setObjective(obj)
 
-    #         hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
-    #         model.update()
-    #         obj = hinge_grb_expr[0, 0]
-    #         model.setObjective(obj)
+        #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        #         comp = EqExpr(aff, np.array([[1.0]]))
+        #         bound_expr = BoundExpr(comp, var)
+        #         prob.add_cnt_expr(bound_expr)
 
-    #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-    #         comp = EqExpr(aff, np.array([[1.0]]))
-    #         bound_expr = BoundExpr(comp, var)
-    #         prob.add_cnt_expr(bound_expr)
+        #         model.optimize()
+        #         var.update()
+        #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
+        #         self.assertTrue(np.allclose(obj.X, 2.0))
 
-    #         model.optimize()
-    #         var.update()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
-    #         self.assertTrue(np.allclose(obj.X, 2.0))
+        #     def test_abs_expr_to_grb_expr(self):
+        #         """
+        #         min |x + 1| s.t. x <= -4
+        #         """
+        #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        #         abs_expr = AbsExpr(aff)
 
-    #     def test_abs_expr_to_grb_expr(self):
-    #         """
-    #         min |x + 1| s.t. x <= -4
-    #         """
-    #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-    #         abs_expr = AbsExpr(aff)
+        #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        #         comp = LEqExpr(aff, np.array([[-4]]))
 
-    #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-    #         comp = LEqExpr(aff, np.array([[-4]]))
+        #         model = grb.Model()
+        #         prob = Prob(model)
 
-    #         model = grb.Model()
-    #         prob = Prob(model)
+        #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
+        #         grb_vars = np.array([[grb_var]])
+        #         var = Variable(grb_vars)
+        #         model.update()
 
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars)
-    #         model.update()
+        #         abs_grb_expr, abs_grb_cnt = prob._abs_expr_to_grb_expr(abs_expr, var)
+        #         model.update()
+        #         model.setObjective(abs_grb_expr[0, 0])
 
-    #         abs_grb_expr, abs_grb_cnt = prob._abs_expr_to_grb_expr(abs_expr, var)
-    #         model.update()
-    #         model.setObjective(abs_grb_expr[0, 0])
+        #         bexpr = BoundExpr(comp, var)
+        #         prob.add_cnt_expr(bexpr)
 
-    #         bexpr = BoundExpr(comp, var)
-    #         prob.add_cnt_expr(bexpr)
+        #         model.optimize()
+        #         var.update()
+        #         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
+        #         # makes assumption about the construction of the Gurobi variable, needs
+        #         # to be changed TODO
+        #         pos = abs_grb_expr[0, 0].getVar(0).X
+        #         neg = abs_grb_expr[0, 0].getVar(1).X
+        #         self.assertTrue(np.allclose(pos, 0.0))
+        #         self.assertTrue(np.allclose(neg, 3.0))
 
-    #         model.optimize()
-    #         var.update()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
-    #         # makes assumption about the construction of the Gurobi variable, needs
-    #         # to be changed TODO
-    #         pos = abs_grb_expr[0, 0].getVar(0).X
-    #         neg = abs_grb_expr[0, 0].getVar(1).X
-    #         self.assertTrue(np.allclose(pos, 0.0))
-    #         self.assertTrue(np.allclose(neg, 3.0))
+    def test_convexify_eq(self):
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-    # def test_convexify_eq(self):
-    #     model = grb.Model()
-    #     prob = Prob(model)
-    #     grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #     grb_vars = np.array([[grb_var]])
-    #     var = Variable(grb_vars)
+        prob._osqp_lin_cnt_exprs += [
+            OSQPLinearConstraint(np.array([osqp_var]), np.ones(1), 0.0, 0.0)
+        ]
+        prob.optimize()
+        var.update()
 
-    #     model.update()
-    #     grb_cnt = model.addConstr(grb_var, GRB.EQUAL, 0)
-    #     model.optimize()
-    #     var.update()
+        e = Expr(f)
+        eq = EqExpr(e, np.array([[4]]))
+        bexpr = BoundExpr(eq, var)
+        prob.add_cnt_expr(bexpr)
 
-    #     e = Expr(f)
-    #     eq = EqExpr(e, np.array([[4]]))
-    #     bexpr = BoundExpr(eq, var)
-    #     prob.add_cnt_expr(bexpr)
+        prob.convexify()
+        self.assertTrue(len(prob._penalty_exprs) == 1)
+        self.assertTrue(isinstance(prob._penalty_exprs[0].expr, AbsExpr))
 
-    #     prob.convexify()
-    #     self.assertTrue(len(prob._penalty_exprs) == 1)
-    #     self.assertTrue(isinstance(prob._penalty_exprs[0].expr, AbsExpr))
+    def test_convexify_leq(self):
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-    #     def test_convexify_leq(self):
-    #         model = grb.Model()
-    #         prob = Prob(model)
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars)
+        prob._osqp_lin_cnt_exprs += [
+            OSQPLinearConstraint(np.array([osqp_var]), np.ones(1), 0.0, 0.0)
+        ]
+        prob.optimize()
+        var.update()
 
-    #         model.update()
-    #         grb_cnt = model.addConstr(grb_var, GRB.EQUAL, 0)
-    #         model.optimize()
-    #         var.update()
+        e = Expr(f)
+        eq = LEqExpr(e, np.array([[4]]))
+        bexpr = BoundExpr(eq, var)
+        prob.add_cnt_expr(bexpr)
 
-    #         e = Expr(f)
-    #         eq = LEqExpr(e, np.array([[4]]))
-    #         bexpr = BoundExpr(eq, var)
-    #         prob.add_cnt_expr(bexpr)
+        prob.convexify()
+        self.assertTrue(len(prob._penalty_exprs) == 1)
+        self.assertTrue(isinstance(prob._penalty_exprs[0].expr, HingeExpr))
 
-    #         prob.convexify()
-    #         self.assertTrue(len(prob._penalty_exprs) == 1)
-    #         self.assertTrue(isinstance(prob._penalty_exprs[0].expr, HingeExpr))
+    def test_get_value_lin_constr(self):
+        """
+        min x^2 st. x == 4
+        when convexified,
+        min x^2 + penalty_coeff*|x-4|
+        when penalty_coeff == 1, solution is x = 0.5 and the value is 3.75
+        (according to Wolfram Alpha)
 
-    #     def test_get_value_lin_constr(self):
-    #         """
-    #         min x^2 st. x == 4
-    #         when convexified,
-    #         min x^2 + penalty_coeff*|x-4|
-    #         when penalty_coeff == 1, solution is x = 0.5 and the value is 3.75
-    #         (according to Wolfram Alpha)
+        when penalty_coeff == 2, solution is x = 1.0 and the value is 7.0
+        (according to Wolfram Alpha)
+        """
+        quad = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
+        e = Expr(f)
+        eq = EqExpr(e, np.array([[4]]))
 
-    #         when penalty_coeff == 2, solution is x = 1.0 and the value is 7.0
-    #         (according to Wolfram Alpha)
-    #         """
-    #         quad = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
-    #         e = Expr(f)
-    #         eq = EqExpr(e, np.array([[4]]))
+        prob = Prob()
 
-    #         model = grb.Model()
-    #         prob = Prob(model)
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars)
-    #         model.update()
+        obj = BoundExpr(quad, var)
+        prob.add_obj_expr(obj)
+        bexpr = BoundExpr(eq, var)
+        prob.add_cnt_expr(bexpr)
 
-    #         obj = BoundExpr(quad, var)
-    #         prob.add_obj_expr(obj)
-    #         bexpr = BoundExpr(eq, var)
-    #         prob.add_cnt_expr(bexpr)
+        prob.optimize()  # needed to set an initial value
+        prob.convexify()
+        prob.update_obj(penalty_coeff=1.0)
+        prob.optimize()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[0.5]])))
+        self.assertTrue(np.allclose(prob.get_value(1.0), np.array([[3.75]])))
 
-    #         prob.optimize()  # needed to set an initial value
-    #         prob.convexify()
-    #         prob.update_obj(penalty_coeff=1.0)
-    #         prob.optimize()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[0.5]])))
-    #         self.assertTrue(np.allclose(prob.get_value(1.0), np.array([[3.75]])))
+        prob.update_obj(penalty_coeff=2.0)
+        prob.optimize()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
+        self.assertTrue(np.allclose(prob.get_value(2.0), np.array([[7]])))
 
-    #         prob.update_obj(penalty_coeff=2.0)
-    #         prob.optimize()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
-    #         self.assertTrue(np.allclose(prob.get_value(2.0), np.array([[7]])))
+    def test_get_approx_value_lin_constr(self):
+        """
+        min x^2 st. x == 4
+        when convexified,
+        min x^2 + penalty_coeff*|x-4|
+        when penalty_coeff == 1, solution is x = 0.5 and the value is 3.75
+        (according to Wolfram Alpha)
 
-    #     def test_get_approx_value_lin_constr(self):
-    #         """
-    #         min x^2 st. x == 4
-    #         when convexified,
-    #         min x^2 + penalty_coeff*|x-4|
-    #         when penalty_coeff == 1, solution is x = 0.5 and the value is 3.75
-    #         (according to Wolfram Alpha)
+        when penalty_coeff == 2, solution is x = 1.0 and the value is 7.0
+        (according to Wolfram Alpha)
+        """
+        quad = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
+        e = Expr(f)
+        eq = EqExpr(e, np.array([[4]]))
 
-    #         when penalty_coeff == 2, solution is x = 1.0 and the value is 7.0
-    #         (according to Wolfram Alpha)
-    #         """
-    #         quad = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
-    #         e = Expr(f)
-    #         eq = EqExpr(e, np.array([[4]]))
+        prob = Prob()
 
-    #         model = grb.Model()
-    #         prob = Prob(model)
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars)
-    #         model.update()
+        obj = BoundExpr(quad, var)
+        prob.add_obj_expr(obj)
+        bexpr = BoundExpr(eq, var)
+        prob.add_cnt_expr(bexpr)
 
-    #         obj = BoundExpr(quad, var)
-    #         prob.add_obj_expr(obj)
-    #         bexpr = BoundExpr(eq, var)
-    #         prob.add_cnt_expr(bexpr)
+        prob.optimize()  # needed to set an initial value
+        prob.convexify()
+        prob.update_obj(penalty_coeff=1.0)
+        prob.optimize()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[0.5]])))
+        self.assertTrue(np.allclose(prob.get_approx_value(1.0), np.array([[3.75]])))
 
-    #         prob.optimize()  # needed to set an initial value
-    #         prob.convexify()
-    #         prob.update_obj(penalty_coeff=1.0)
-    #         prob.optimize()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[0.5]])))
-    #         self.assertTrue(np.allclose(prob.get_approx_value(1.0), np.array([[3.75]])))
+        prob.update_obj(penalty_coeff=2.0)
+        prob.optimize()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
+        self.assertTrue(np.allclose(prob.get_approx_value(2.0), np.array([[7]])))
 
-    #         prob.update_obj(penalty_coeff=2.0)
-    #         prob.optimize()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
-    #         self.assertTrue(np.allclose(prob.get_approx_value(2.0), np.array([[7]])))
+    def test_get_value_and_get_approx_value_nonlin_constr(self):
+        """
+        min x^2 -2x + 1 st. x^2 == 4
+        when convexified at x = 1,
+        min x^2 -2x + 1 + penalty_coeff*|2x-5|
+        when penalty_coeff == 0.5, solution is x = 1.5 and the value is 1.25
+        (according to Wolfram Alpha)
 
-    #     def test_get_value_and_get_approx_value_nonlin_constr(self):
-    #         """
-    #         min x^2 -2x + 1 st. x^2 == 4
-    #         when convexified at x = 1,
-    #         min x^2 -2x + 1 + penalty_coeff*|2x-5|
-    #         when penalty_coeff == 0.5, solution is x = 1.5 and the value is 1.25
-    #         (according to Wolfram Alpha)
+        approx value should be 1.25
+        value should be 1.125
+        """
+        quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.ones((1, 1)))
+        quad_cnt = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
+        eq = EqExpr(quad_cnt, np.array([[4]]))
 
-    #         approx value should be 1.25
-    #         value should be 1.125
-    #         """
-    #         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.ones((1, 1)))
-    #         quad_cnt = QuadExpr(2 * np.eye(1), np.zeros((1, 1)), np.zeros((1, 1)))
-    #         eq = EqExpr(quad_cnt, np.array([[4]]))
+        prob = Prob()
 
-    #         model = grb.Model()
-    #         prob = Prob(model)
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars, np.array([[1.0]]))
+        prob.add_var(var)
 
-    #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-    #         grb_vars = np.array([[grb_var]])
-    #         var = Variable(grb_vars, np.array([[1.0]]))
-    #         model.update()
+        obj = BoundExpr(quad, var)
+        prob.add_obj_expr(obj)
+        bexpr = BoundExpr(eq, var)
+        prob.add_cnt_expr(bexpr)
 
-    #         obj = BoundExpr(quad, var)
-    #         prob.add_obj_expr(obj)
-    #         bexpr = BoundExpr(eq, var)
-    #         prob.add_cnt_expr(bexpr)
+        prob.convexify()
+        prob.update_obj(penalty_coeff=0.5)
+        prob.optimize()
 
-    #         prob.convexify()
-    #         prob.update_obj(penalty_coeff=0.5)
-    #         prob.optimize()
-    #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.5]])))
-    #         self.assertTrue(np.allclose(prob.get_approx_value(0.5), np.array([[1.25]])))
-    #         self.assertTrue(np.allclose(prob.get_value(0.5), np.array([[1.125]])))
+        self.assertTrue(np.allclose(var.get_value(), np.array([[1.5]])))
+        self.assertTrue(np.allclose(prob.get_approx_value(0.5), np.array([[1.25]])))
+        self.assertTrue(np.allclose(prob.get_value(0.5), np.array([[1.125]])))
 
     def test_get_max_cnt_violation_eq_cnts(self):
         prob = Prob()

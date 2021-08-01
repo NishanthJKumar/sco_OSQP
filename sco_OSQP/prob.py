@@ -251,9 +251,9 @@ class Prob(object):
         neg = self.create_pos_osqp_var_arr((A_mat.shape[0], 1))
 
         # First, add all the objective terms
-        for pos_var in np.nditer(pos):
+        for pos_var in pos.flat:
             self._osqp_penalty_exprs.append(OSQPLinearObj(pos_var, 1.0))
-        for neg_var in np.nditer(neg):
+        for neg_var in neg.flat:
             self._osqp_penalty_exprs.append(OSQPLinearObj(neg_var, 1.0))
 
         # Next, add the constraints
@@ -270,9 +270,9 @@ class Prob(object):
             # -b_vec[i] <= osqp_vars[inds, 0] * A_mat[i, inds] - pos_var[i] + neg_var[i] <= -b_vec[i]
             curr_ub = -b_vec[i]
             curr_lb = -b_vec[i]
-            cnt_vars = np.concatenate((osqp_vars[inds, 0], pos_var[i], neg_var[i]))
+            cnt_vars = np.concatenate((osqp_vars[inds, 0], pos[i], neg[i]))
             cnt_coeffs = np.concatenate(
-                (A_mat[i, inds], np.array([-1.0], np.array([1.0])))
+                (A_mat[i, inds], np.array([-1.0]), np.array([1.0]))
             )
             curr_cnt_expr = OSQPLinearConstraint(cnt_vars, cnt_coeffs, curr_lb, curr_ub)
             cnts_list.append(curr_cnt_expr)
