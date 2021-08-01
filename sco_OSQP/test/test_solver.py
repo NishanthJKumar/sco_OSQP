@@ -51,13 +51,13 @@
 
 #     prob = Prob()
 
-#     osqp_var1 = OSQPVar("x1")
-#     osqp_var2 = OSQPVar("x2")
-#     prob.add_osqp_var(osqp_var1)
-#     prob.add_osqp_var(osqp_var2)
-#     osqp_vars = np.array([[osqp_var1], [osqp_var2]])
-#     var = Variable(osqp_vars, value=x0)
-#     prob.add_var(var)
+# osqp_var1 = OSQPVar("x1")
+# osqp_var2 = OSQPVar("x2")
+# prob.add_osqp_var(osqp_var1)
+# prob.add_osqp_var(osqp_var2)
+# osqp_vars = np.array([[osqp_var1], [osqp_var2]])
+# var = Variable(osqp_vars, value=x0)
+# prob.add_var(var)
 
 #     quad_obj = BoundExpr(QuadExpr(Q, q, np.zeros((1, 1))), var)
 #     prob.add_obj_expr(quad_obj)
