@@ -102,7 +102,7 @@ class OSQPLinearConstraint(object):
 
 def optimize(
     osqp_vars: List[OSQPVar],
-    vars: List[Variable],
+    sco_vars: List[Variable],
     osqp_quad_objs: List[OSQPQuadraticObj],
     osqp_lin_objs: List[OSQPLinearObj],
     osqp_lin_cnt_exprs: List[OSQPLinearConstraint],
@@ -141,7 +141,7 @@ def optimize(
 
     # Next, setup the A-matrix and l and u vectors
     num_var_constraints = sum(
-        osqp_vars.shape[0] for var in vars for osqp_vars in var.get_osqp_vars()
+        osqp_vars.shape[0] for var in sco_vars for osqp_vars in var.get_osqp_vars()
     )
     A_mat = np.zeros((num_var_constraints + len(osqp_lin_cnt_exprs), num_osqp_vars))
     l_vec = np.zeros(num_var_constraints + len(osqp_lin_cnt_exprs))
@@ -159,7 +159,7 @@ def optimize(
 
     # Then, add the trust regions for every variable as constraints
     # for var in vars:
-    for var in vars:
+    for var in sco_vars:
         osqp_vars = var.get_osqp_vars()
         for osqp_var_i in range(osqp_vars.shape[0]):
             A_mat[row_num, var_to_index_dict[osqp_vars[osqp_var_i, 0]]] = 1.0

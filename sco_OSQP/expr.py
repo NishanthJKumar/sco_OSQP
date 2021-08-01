@@ -65,6 +65,7 @@ class Expr(object):
         function.
         """
         grad_fn = nd.Jacobian(self._get_flat_f(x))
+
         return grad_fn(x.flatten())
 
     def _debug_grad(self, g1, g2, atol=DEFAULT_TOL):
