@@ -1,102 +1,100 @@
-# import unittest
+import unittest
 
-# import gurobipy as grb
+import numpy as np
 
-# GRB = grb.GRB
+from sco_OSQP.expr import *
+from sco_OSQP.osqp_utils import OSQPLinearObj, OSQPQuadraticObj, OSQPVar
+from sco_OSQP.prob import Prob
+from sco_OSQP.variable import Variable
 
-# import numpy as np
-# from expr import *
-# from ipdb import set_trace as st
-# from prob import PosGRBVarManager, Prob
-# from variable import Variable
-
-# f = lambda x: np.array([[x]])
+f = lambda x: np.array([[x]])
 
 
-# def test_grb_var_pos(ut, grb_var):
-#     ut.assertTrue(grb_var.lb == 0.0 and grb_var.ub == GRB.INFINITY)
+def helper_test_osqp_var_pos(ut, osqp_var):
+    ut.assertTrue(
+        osqp_var.get_lower_bound() == 0.0 and osqp_var.get_upper_bound() == np.inf
+    )
 
 
-# class TestProb(unittest.TestCase):
-#     def test_add_obj_expr_quad(self):
-#         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
-#         aff = AffExpr(-2 * np.ones((1, 1)), np.zeros((1, 1)))
-#         model = grb.Model()
-#         prob = Prob(model)
-#         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-#         grb_vars = np.array([[grb_var]])
-#         var = Variable(grb_vars)
+class TestProb(unittest.TestCase):
+    def test_add_obj_expr_quad(self):
+        quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
+        aff = AffExpr(-2 * np.ones((1, 1)), np.zeros((1, 1)))
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
 
-#         bexpr_quad = BoundExpr(quad, var)
-#         bexpr_aff = BoundExpr(aff, var)
-#         prob.add_obj_expr(bexpr_quad)
-#         prob.add_obj_expr(bexpr_aff)
+        bexpr_quad = BoundExpr(quad, var)
+        bexpr_aff = BoundExpr(aff, var)
+        prob.add_obj_expr(bexpr_quad)
+        prob.add_obj_expr(bexpr_aff)
 
-#         self.assertTrue(bexpr_aff in prob._quad_obj_exprs)
-#         self.assertTrue(bexpr_quad in prob._quad_obj_exprs)
-#         self.assertTrue(var in prob._vars)
+        self.assertTrue(bexpr_aff in prob._quad_obj_exprs)
+        self.assertTrue(bexpr_quad in prob._quad_obj_exprs)
+        self.assertTrue(var in prob._vars)
 
-#     def test_add_obj_expr_nonquad(self):
-#         expr = Expr(f)
-#         model = grb.Model()
-#         prob = Prob(model)
-#         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-#         grb_vars = np.array([[grb_var]])
-#         var = Variable(grb_vars)
+    def test_add_obj_expr_nonquad(self):
+        expr = Expr(f)
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
 
-#         bexpr = BoundExpr(expr, var)
-#         prob.add_obj_expr(bexpr)
+        bexpr = BoundExpr(expr, var)
+        prob.add_obj_expr(bexpr)
 
-#         self.assertTrue(bexpr not in prob._quad_obj_exprs)
-#         self.assertTrue(bexpr in prob._nonquad_obj_exprs)
-#         self.assertTrue(var in prob._vars)
+        self.assertTrue(bexpr not in prob._quad_obj_exprs)
+        self.assertTrue(bexpr in prob._nonquad_obj_exprs)
+        self.assertTrue(var in prob._vars)
 
-#     def test_find_closest_feasible_point_leq_cnts(self):
-#         cnt_vals = [
-#             np.ones((2, 1)),
-#             np.array([[-1.0], [1.0]]),
-#             np.array([[-1.0], [-1.0]]),
-#         ]
-#         true_var_vals = [
-#             np.zeros((2, 1)),
-#             np.array([[-1.0], [0.0]]),
-#             -1 * np.ones((2, 1)),
-#         ]
+    def test_find_closest_feasible_point_leq_cnts(self):
+        cnt_vals = [
+            np.ones((2, 1)),
+            np.array([[-1.0], [1.0]]),
+            np.array([[-1.0], [-1.0]]),
+        ]
+        true_var_vals = [
+            np.zeros((2, 1)),
+            np.array([[-1.0], [0.0]]),
+            -1 * np.ones((2, 1)),
+        ]
 
-#         for true_var_val, cnt_val in zip(true_var_vals, cnt_vals):
-#             model = grb.Model()
-#             prob = Prob(model)
-#             grb_var1 = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x1")
-#             grb_var2 = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x2")
-#             grb_vars = np.array([[grb_var1], [grb_var2]])
-#             var = Variable(grb_vars, np.zeros((2, 1)))
+        for true_var_val, cnt_val in zip(true_var_vals, cnt_vals):
+            prob = Prob()
+            osqp_var1 = OSQPVar("x1")
+            osqp_var2 = OSQPVar("x2")
+            prob.add_osqp_var(osqp_var1)
+            prob.add_osqp_var(osqp_var2)
+            osqp_vars = np.array([[osqp_var1], [osqp_var2]])
+            var = Variable(osqp_vars, np.zeros((2, 1)))
+            prob.add_var(var)
 
-#             model.update()
+            aff_expr = AffExpr(np.eye(2), np.zeros((2, 1)))
+            leq_expr = LEqExpr(aff_expr, cnt_val)
+            bexpr = BoundExpr(leq_expr, var)
+            prob.add_cnt_expr(bexpr)
+            prob.find_closest_feasible_point()
+            self.assertTrue(np.allclose(var.get_value(), true_var_val))
 
-#             aff_expr = AffExpr(np.eye(2), np.zeros((2, 1)))
-#             leq_expr = LEqExpr(aff_expr, cnt_val)
-#             bexpr = BoundExpr(leq_expr, var)
-#             prob.add_cnt_expr(bexpr)
-#             prob.find_closest_feasible_point()
-#             self.assertTrue(np.allclose(var.get_value(), true_var_val))
+    def test_find_closest_feasible_point_eq_cnts(self):
+        prob = Prob()
+        osqp_var1 = OSQPVar("x1")
+        osqp_var2 = OSQPVar("x2")
+        prob.add_osqp_var(osqp_var1)
+        prob.add_osqp_var(osqp_var2)
+        osqp_vars = np.array([[osqp_var1], [osqp_var2]])
+        var = Variable(osqp_vars, np.zeros((2, 1)))
+        prob.add_var(var)
 
-#     def test_find_closest_feasible_point_eq_cnts(self):
-#         model = grb.Model()
-#         prob = Prob(model)
-#         grb_var1 = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x1")
-#         grb_var2 = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x2")
-#         grb_vars = np.array([[grb_var1], [grb_var2]])
-#         var = Variable(grb_vars, np.zeros((2, 1)))
+        val = np.array([[5.0], [-10.0]])
+        aff_expr = AffExpr(np.eye(2), np.zeros((2, 1)))
+        eq_expr = EqExpr(aff_expr, val)
+        bexpr = BoundExpr(eq_expr, var)
+        prob.add_cnt_expr(bexpr)
+        prob.find_closest_feasible_point()
+        self.assertTrue(np.allclose(var.get_value(), val))
 
-#         model.update()
-
-#         val = np.array([[5.0], [-10.0]])
-#         aff_expr = AffExpr(np.eye(2), np.zeros((2, 1)))
-#         eq_expr = EqExpr(aff_expr, val)
-#         bexpr = BoundExpr(eq_expr, var)
-#         prob.add_cnt_expr(bexpr)
-#         prob.find_closest_feasible_point()
-#         self.assertTrue(np.allclose(var.get_value(), val))
 
 #     def test_optimize_just_quad_obj(self):
 #         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
@@ -577,7 +575,3 @@
 #         x[1] = 3
 #         prob.optimize()
 #         self.assertTrue(1 in x)
-
-
-# if __name__ == "__main__":
-#     unittest.main()
