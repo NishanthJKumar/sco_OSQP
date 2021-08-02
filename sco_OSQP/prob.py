@@ -2,8 +2,6 @@
 from collections import defaultdict
 
 import numpy as np
-import osqp
-import scipy
 
 import sco_OSQP.expr as sco_osqp_expr
 import sco_OSQP.osqp_utils as osqp_utils
@@ -77,6 +75,8 @@ class Prob(object):
         self.hinge_created = False
 
         self._penalty_exprs = []
+        self._osqp_penalty_cnts = []
+        self._osqp_penalty_exprs = []
 
         # group-id (str) -> cnt-set (set of constraints)
         self._cnt_groups = defaultdict(set)

@@ -392,8 +392,8 @@ class TestBoundExpr(unittest.TestCase):
         for f, fder, _ in fs:
             e = Expr(f)
             for x in xs:
-                dummy_grb_vars = np.array([[1]])
-                v = Variable(dummy_grb_vars, x)
+                dummy_osqp_vars = np.array([[1]])
+                v = Variable(dummy_osqp_vars, x)
 
                 b_e = BoundExpr(e, v)
                 self.assertTrue(np.allclose(b_e.eval(), e.eval(x)))

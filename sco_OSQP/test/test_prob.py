@@ -3,9 +3,9 @@ import unittest
 
 import numpy as np
 
-from sco_OSQP.expr import *
-from sco_OSQP.osqp_utils import (OSQPLinearConstraint, OSQPLinearObj,
-                                 OSQPQuadraticObj, OSQPVar)
+from sco_OSQP.expr import (AbsExpr, AffExpr, BoundExpr, CompExpr, EqExpr, Expr,
+                           HingeExpr, LEqExpr, QuadExpr)
+from sco_OSQP.osqp_utils import OSQPLinearConstraint, OSQPVar
 from sco_OSQP.prob import Prob
 from sco_OSQP.variable import Variable
 
@@ -150,7 +150,7 @@ class TestProb(unittest.TestCase):
 
         self.assertTrue(np.allclose(var_value, value))
 
-    def test_expr_to_grb_expr_w_comp_expr(self):
+    def test_expr_to_osqp_expr_w_comp_expr(self):
         prob = Prob()
         aff = AffExpr(-2 * np.ones((1, 1)), np.zeros((1, 1)))
         val = np.zeros((1, 1))
@@ -160,9 +160,8 @@ class TestProb(unittest.TestCase):
             prob._add_osqp_objs_and_cnts_from_expr(bexpr)
         self.assertTrue("Comparison" in str(e.exception))
 
-    def test_expr_to_grb_expr_w_expr(self):
+    def test_expr_to_osqp_expr_w_expr(self):
         prob = Prob()
-        expr = Expr(f)
         bexpr = BoundExpr(f, None)
         with self.assertRaises(Exception) as e:
             prob._add_osqp_objs_and_cnts_from_expr(bexpr)
@@ -206,99 +205,81 @@ class TestProb(unittest.TestCase):
 
         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
-        # NOTE: below two tests are hard because my function for hinge_exprs doesn't return anything...
-        # def test_hinge_expr_to_grb_expr1(self):
-        #     """
-        #     min max(0, x+1) st. x == -4
-        #     """
-        #     aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-        #     hinge = HingeExpr(aff)
-        #     prob = Prob(model)
+    def test_hinge_expr_to_osqp_expr1(self):
+        """
+        min max(0, x+1) st. x == -4
+        """
+        aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        hinge = HingeExpr(aff)
 
-        #     prob = Prob()
-        #     osqp_var = OSQPVar("x")
-        #     prob.add_osqp_var(osqp_var)
-        #     osqp_vars = np.array([[osqp_var]])
-        #     var = Variable(osqp_vars)
-        #     prob.add_var(var)
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-        #     hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
-        #     obj = hinge_grb_expr[0, 0]
-        #     model.setObjective(obj)
+        prob._add_to_lin_objs_and_cnts_from_hinge_expr(hinge, var)
 
-        #     aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-        #     comp = EqExpr(aff, np.array([[-4]]))
-        #     bound_expr = BoundExpr(comp, var)
-        #     prob.add_cnt_expr(bound_expr)
+        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        comp = EqExpr(aff, np.array([[-4]]))
+        bound_expr = BoundExpr(comp, var)
+        prob.add_cnt_expr(bound_expr)
 
-        #     model.optimize()
-        #     var.update()
-        #     self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
-        #     self.assertTrue(np.allclose(obj.X, 0.0))
+        prob.optimize()
+        var.update()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
-        #     def test_hinge_expr_to_grb_expr2(self):
-        #         """
-        #         min max(0, x+1) st. x == 1
-        #         """
-        #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-        #         hinge = HingeExpr(aff)
-        #         model = grb.Model()
-        #         prob = Prob(model)
+    def test_hinge_expr_to_osqp_expr2(self):
+        """
+        min max(0, x+1) st. x == 1
+        """
+        aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        hinge = HingeExpr(aff)
 
-        #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-        #         grb_vars = np.array([[grb_var]])
-        #         var = Variable(grb_vars)
-        #         model.update()
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-        #         hinge_grb_expr, hinge_grb_cnt = prob._hinge_expr_to_grb_expr(hinge, var)
-        #         model.update()
-        #         obj = hinge_grb_expr[0, 0]
-        #         model.setObjective(obj)
+        prob._add_to_lin_objs_and_cnts_from_hinge_expr(hinge, var)
 
-        #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-        #         comp = EqExpr(aff, np.array([[1.0]]))
-        #         bound_expr = BoundExpr(comp, var)
-        #         prob.add_cnt_expr(bound_expr)
+        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        comp = EqExpr(aff, np.array([[1.0]]))
+        bound_expr = BoundExpr(comp, var)
+        prob.add_cnt_expr(bound_expr)
 
-        #         model.optimize()
-        #         var.update()
-        #         self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
-        #         self.assertTrue(np.allclose(obj.X, 2.0))
+        prob.optimize()
+        var.update()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[1.0]])))
 
-        #     def test_abs_expr_to_grb_expr(self):
-        #         """
-        #         min |x + 1| s.t. x <= -4
-        #         """
-        #         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
-        #         abs_expr = AbsExpr(aff)
+    def test_abs_expr_to_osqp_expr(self):
+        """
+        min |x + 1| s.t. x <= -4
+        """
+        aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
+        abs_expr = AbsExpr(aff)
 
-        #         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-        #         comp = LEqExpr(aff, np.array([[-4]]))
+        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
+        comp = LEqExpr(aff, np.array([[-4]]))
 
-        #         model = grb.Model()
-        #         prob = Prob(model)
+        prob = Prob()
+        osqp_var = OSQPVar("x")
+        prob.add_osqp_var(osqp_var)
+        osqp_vars = np.array([[osqp_var]])
+        var = Variable(osqp_vars)
+        prob.add_var(var)
 
-        #         grb_var = model.addVar(lb=-1 * GRB.INFINITY, ub=GRB.INFINITY, name="x")
-        #         grb_vars = np.array([[grb_var]])
-        #         var = Variable(grb_vars)
-        #         model.update()
+        prob._add_to_lin_objs_and_cnts_from_abs_expr(abs_expr, var)
 
-        #         abs_grb_expr, abs_grb_cnt = prob._abs_expr_to_grb_expr(abs_expr, var)
-        #         model.update()
-        #         model.setObjective(abs_grb_expr[0, 0])
+        bexpr = BoundExpr(comp, var)
+        prob.add_cnt_expr(bexpr)
 
-        #         bexpr = BoundExpr(comp, var)
-        #         prob.add_cnt_expr(bexpr)
-
-        #         model.optimize()
-        #         var.update()
-        #         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
-        #         # makes assumption about the construction of the Gurobi variable, needs
-        #         # to be changed TODO
-        #         pos = abs_grb_expr[0, 0].getVar(0).X
-        #         neg = abs_grb_expr[0, 0].getVar(1).X
-        #         self.assertTrue(np.allclose(pos, 0.0))
-        #         self.assertTrue(np.allclose(neg, 3.0))
+        prob.optimize()
+        var.update()
+        self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
     def test_convexify_eq(self):
         prob = Prob()
