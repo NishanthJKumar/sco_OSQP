@@ -66,7 +66,11 @@ class Expr(object):
         """
         grad_fn = nd.Jacobian(self._get_flat_f(x))
 
-        return grad_fn(x.flatten())
+        return grad_fn(x)
+        # try:
+        #     return grad_fn(x.flatten())
+        # except ValueError:
+        #     return grad_fn(x)
 
     def _debug_grad(self, g1, g2, atol=DEFAULT_TOL):
         for i, g_row in enumerate(g1):

@@ -143,18 +143,33 @@ class Prob(object):
 
         self.add_var(var)
 
-    def optimize(self):
+    def optimize(self, add_convexified_terms=False):
         """
         Calls the OSQP optimizer on the current QP approximation with a given
-        penalty coefficient.
+        penalty coefficient. Note that add_convexified_terms is a convenience
+        boolean useful to toggle whether or not self._osqp_penalty_exprs and
+        self._osqp_penalty_cnts are included in the optimization problem
         """
-        solve_res, var_to_index_dict = osqp_utils.optimize(
-            self._osqp_vars,
-            self._vars,
-            self._osqp_quad_objs,
-            self._osqp_lin_objs,
-            self._osqp_lin_cnt_exprs,
-        )
+        if not add_convexified_terms:
+            solve_res, var_to_index_dict = osqp_utils.optimize(
+                self._osqp_vars,
+                self._vars,
+                self._osqp_quad_objs,
+                self._osqp_lin_objs,
+                self._osqp_lin_cnt_exprs,
+            )
+        else:
+            cnt_exprs = self._osqp_lin_cnt_exprs[:]
+            for penalty_cnt_list in self._osqp_penalty_cnts:
+                cnt_exprs.extend(penalty_cnt_list)
+
+            solve_res, var_to_index_dict = osqp_utils.optimize(
+                self._osqp_vars,
+                self._vars,
+                self._osqp_quad_objs,
+                self._osqp_lin_objs + self._osqp_penalty_exprs,
+                cnt_exprs,
+            )
 
         # If the solve failed, just return False
         if solve_res.info.status_val not in [1, 2]:

@@ -140,12 +140,9 @@ def optimize(
                 P_mat[idx2, idx1] += quad_obj.coeffs[i]
 
     # Next, setup the A-matrix and l and u vectors
-    num_var_constraints = sum(
-        osqp_vars.shape[0] for var in sco_vars for osqp_vars in var.get_osqp_vars()
-    )
-    A_mat = np.zeros((num_var_constraints + len(osqp_lin_cnt_exprs), num_osqp_vars))
-    l_vec = np.zeros(num_var_constraints + len(osqp_lin_cnt_exprs))
-    u_vec = np.zeros(num_var_constraints + len(osqp_lin_cnt_exprs))
+    A_mat = np.zeros((num_osqp_vars + len(osqp_lin_cnt_exprs), num_osqp_vars))
+    l_vec = np.zeros(num_osqp_vars + len(osqp_lin_cnt_exprs))
+    u_vec = np.zeros(num_osqp_vars + len(osqp_lin_cnt_exprs))
     # First add all the linear constraints
     row_num = 0
     for lin_constraint in osqp_lin_cnt_exprs:
@@ -158,18 +155,16 @@ def optimize(
         row_num += 1
 
     # Then, add the trust regions for every variable as constraints
-    # for var in vars:
-    for var in sco_vars:
-        osqp_vars = var.get_osqp_vars()
-        for osqp_var_i in range(osqp_vars.shape[0]):
-            A_mat[row_num, var_to_index_dict[osqp_vars[osqp_var_i, 0]]] = 1.0
-            l_vec[row_num] = osqp_vars[osqp_var_i, 0].get_lower_bound()
-            u_vec[row_num] = osqp_vars[osqp_var_i, 0].get_upper_bound()
-            row_num += 1
+    for osqp_var in osqp_vars:
+        A_mat[row_num, var_to_index_dict[osqp_var]] = 1.0
+        l_vec[row_num] = osqp_var.get_lower_bound()
+        u_vec[row_num] = osqp_var.get_upper_bound()
+        row_num += 1
 
     # Finally, construct the matrices and call the OSQP Solver!
     P_mat_sparse = scipy.sparse.csc_matrix(P_mat)
     A_mat_sparse = scipy.sparse.csc_matrix(A_mat)
+
     m = osqp.OSQP()
     m.setup(
         P=P_mat_sparse,

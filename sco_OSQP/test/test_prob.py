@@ -14,12 +14,6 @@ from sco_OSQP.variable import Variable
 f = lambda x: np.array([[x]])
 
 
-def helper_test_osqp_var_pos(ut, osqp_var):
-    ut.assertTrue(
-        osqp_var.get_lower_bound() == 0.0 and osqp_var.get_upper_bound() == np.inf
-    )
-
-
 class TestProb(unittest.TestCase):
     def test_add_obj_expr_quad(self):
         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
@@ -184,12 +178,14 @@ class TestProb(unittest.TestCase):
         self.assertTrue(np.allclose(var.get_value(), np.array([[2]])))
 
     def test_add_cnt_leq_aff(self):
+        """
+        minimize x^2 - x st. x <= -4
+        """
         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
 
         aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-        comp = LEqExpr(aff, np.array([[-4]]))
         prob = Prob()
-        osqp_var = OSQPVar("x")
+        osqp_var = OSQPVar("x", ub=-4.0)
         prob.add_osqp_var(osqp_var)
         osqp_vars = np.array([[osqp_var]])
         var = Variable(osqp_vars)
@@ -197,11 +193,9 @@ class TestProb(unittest.TestCase):
 
         bexpr_quad = BoundExpr(quad, var)
         prob.add_obj_expr(bexpr_quad)
+        prob.update_obj()
 
-        bexpr = BoundExpr(comp, var)
-        prob.add_cnt_expr(bexpr)
-
-        prob.optimize()
+        prob.optimize(add_convexified_terms=True)
 
         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
@@ -262,11 +256,8 @@ class TestProb(unittest.TestCase):
         aff = AffExpr(np.ones((1, 1)), np.ones((1, 1)))
         abs_expr = AbsExpr(aff)
 
-        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
-        comp = LEqExpr(aff, np.array([[-4]]))
-
         prob = Prob()
-        osqp_var = OSQPVar("x")
+        osqp_var = OSQPVar("x", ub=-4.0)
         prob.add_osqp_var(osqp_var)
         osqp_vars = np.array([[osqp_var]])
         var = Variable(osqp_vars)
@@ -274,10 +265,7 @@ class TestProb(unittest.TestCase):
 
         prob._add_to_lin_objs_and_cnts_from_abs_expr(abs_expr, var)
 
-        bexpr = BoundExpr(comp, var)
-        prob.add_cnt_expr(bexpr)
-
-        prob.optimize()
+        prob.optimize(add_convexified_terms=True)
         var.update()
         self.assertTrue(np.allclose(var.get_value(), np.array([[-4]])))
 
@@ -359,6 +347,7 @@ class TestProb(unittest.TestCase):
         prob.convexify()
         prob.update_obj(penalty_coeff=1.0)
         prob.optimize()
+
         self.assertTrue(np.allclose(var.get_value(), np.array([[0.5]])))
         self.assertTrue(np.allclose(prob.get_value(1.0), np.array([[3.75]])))
 
