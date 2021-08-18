@@ -284,11 +284,11 @@ class TestCompExpr(unittest.TestCase):
         val[0] = 1
         self.assertTrue(not np.allclose(comp_e.val, val))
 
-        with self.assertRaises(NotImplementedError) as nie:
+        with self.assertRaises(NotImplementedError) as _:
             comp_e.eval(0)
-        with self.assertRaises(NotImplementedError) as nie:
+        with self.assertRaises(NotImplementedError) as _:
             comp_e.convexify(0)
-        with self.assertRaises(Exception) as e:
+        with self.assertRaises(Exception) as _:
             comp_e.grad(0)
 
 

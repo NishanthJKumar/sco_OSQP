@@ -183,7 +183,6 @@ class TestProb(unittest.TestCase):
         """
         quad = QuadExpr(2 * np.eye(1), -2 * np.ones((1, 1)), np.zeros((1, 1)))
 
-        aff = AffExpr(np.ones((1, 1)), np.zeros((1, 1)))
         prob = Prob()
         osqp_var = OSQPVar("x", ub=-4.0)
         prob.add_osqp_var(osqp_var)

@@ -102,7 +102,7 @@ class TestVariable(unittest.TestCase):
         osqp_var = OSQPVar("x")
         osqp_vars = np.array([[osqp_var]])
         var = Variable(osqp_vars)
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(ValueError) as _:
             var.update()
 
         quad_obj = OSQPQuadraticObj(
