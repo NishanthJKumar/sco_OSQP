@@ -165,6 +165,10 @@ def optimize(
     P_mat_sparse = scipy.sparse.csc_matrix(P_mat)
     A_mat_sparse = scipy.sparse.csc_matrix(A_mat)
 
+    # from IPython import embed
+
+    # embed()
+
     m = osqp.OSQP()
     m.setup(
         P=P_mat_sparse,

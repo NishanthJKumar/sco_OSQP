@@ -142,7 +142,7 @@ class TestSolver(unittest.TestCase):
         b_ineq = np.ones(angles.shape)
         q = -np.array([[np.cos(np.pi / 6), np.sin(np.pi / 6)]])
         g = lambda x: 0.01 * (A_ineq.dot(x) - b_ineq)
-        x_true = np.transpose(np.array([1, np.tan(np.pi / 6)]))
+        x_true = np.transpose(np.array([[1, np.tan(np.pi / 6)]]))
         helper_test_prob(self, x0, x_true, Q=Q, q=q, g=g)
 
     def test_prob7(self):
